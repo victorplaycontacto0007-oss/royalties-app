@@ -39,4 +39,21 @@ export function truncate(str: string, maxLen: number): string {
   return str.slice(0, maxLen) + '…'
 }
 
+/** Pay per 1000 streams (RPMY-style) */
+export function ratePerK(earnings: number, streams: number): number {
+  if (!streams || streams === 0) return 0
+  return (earnings / streams) * 1000
+}
+
+/** Pay per 100 streams */
+export function ratePer100(earnings: number, streams: number): number {
+  if (!streams || streams === 0) return 0
+  return (earnings / streams) * 100
+}
+
+export function formatRate(rate: number): string {
+  if (rate === 0) return '—'
+  return `$${rate.toFixed(4)}`
+}
+
 export const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
