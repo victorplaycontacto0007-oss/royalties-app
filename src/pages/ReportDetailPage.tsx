@@ -4,17 +4,18 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatCurrency, formatNumber, formatDate, ratePerK, ratePer100, formatRate } from '../lib/utils'
+import { exportSplitsExcel, exportConsolidatedExcel, exportSplitsPdf } from '../lib/splits-export'
 import {
   ArrowLeft, Download, Loader2, DollarSign, TrendingUp, Globe,
   Music, Star, Radio, Users, ChevronDown, FileSpreadsheet,
-  FileText as FilePdf, FileType2, Zap
+  FileText as FilePdf, FileType2, Zap, Percent
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
-import type { RoyaltyRecord, Report } from '../types/database'
+import type { RoyaltyRecord, Report, Contract } from '../types/database'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -83,8 +84,17 @@ export default function ReportDetailPage() {
     enabled: !!id && !!user,
   })
 
-  const artists   = useMemo(() => [...new Set((records ?? []).map(r => r.artist_name))].sort(), [records])
-  const platforms = useMemo(() => [...new Set((records ?? []).map(r => r.store))].sort(), [records])
+  const { data: contracts } = useQuery<Contract[]>({
+    queryKey: ['contracts', user?.id],
+    queryFn: async () => {
+      const { data } = await db.from('contracts').select('*, splits:contract_splits(*)')
+        .eq('user_id', user!.id).eq('is_active', true)
+      return (data ?? []) as Contract[]
+    },
+    enabled: !!user,
+  })
+
+  const artists   = useMemo(() => [...new Set((records ?? []).map(r => r.artist_name))].sort(), [records])  const platforms = useMemo(() => [...new Set((records ?? []).map(r => r.store))].sort(), [records])
   const songs     = useMemo(() => [...new Set((records ?? []).map(r => r.song_title))].sort(), [records])
   const countries = useMemo(() => [...new Set((records ?? []).map(r => r.country))].sort(), [records])
 
@@ -623,6 +633,126 @@ export default function ReportDetailPage() {
           ))}
         </div>
       </div>
+      {/* Splits liquidation panel */}
+      {contracts && contracts.length > 0 && (
+        <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} className="card mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-success/10 rounded-lg flex items-center justify-center">
+                <Percent className="w-4 h-4 text-success" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-text-primary">Liquidación de regalías</h3>
+                <p className="text-xs text-text-muted">Basado en tus contratos activos</p>
+              </div>
+            </div>
+            <button
+              onClick={() => exportConsolidatedExcel(filtered, contracts, `liquidacion-${id?.slice(0,8)}`)}
+              className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3">
+              <FileSpreadsheet className="w-3.5 h-3.5 text-green-400" /> Excel consolidado
+            </button>
+          </div>
+
+          <div className="space-y-6">
+            {contracts.map((contract, ci) => {
+              const artistRows = filtered.filter(r => r.artist_name === contract.artist_name)
+              if (artistRows.length === 0 && artists.length > 1) return null
+              const gross   = (artistFilter === 'all' || artistFilter === contract.artist_name)
+                ? (artists.length > 1 ? artistRows : filtered).reduce((a,r) => a + r.earnings_usd, 0)
+                : 0
+              const streams = (artistFilter === 'all' || artistFilter === contract.artist_name)
+                ? (artists.length > 1 ? artistRows : filtered).reduce((a,r) => a + r.quantity, 0)
+                : 0
+              const splits  = contract.splits ?? []
+
+              return (
+                <div key={contract.id} className="border border-border rounded-xl overflow-hidden">
+                  {/* Contract header */}
+                  <div className="bg-surface-2 px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-text-primary font-medium text-sm">{contract.artist_name}</p>
+                      <p className="text-text-muted text-xs">{contract.label} · {streams.toLocaleString()} streams</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-text-muted text-xs">💰 Ingresos brutos</p>
+                      <p className="text-text-primary font-semibold">{formatCurrency(gross)}</p>
+                    </div>
+                  </div>
+
+                  {/* Split rows */}
+                  <div className="divide-y divide-border">
+                    {splits.map((s, si) => {
+                      const amount = gross * (Number(s.percentage) / 100)
+                      return (
+                        <div key={si} className="flex items-center gap-4 px-4 py-3">
+                          <div className="flex-1 flex items-center gap-2">
+                            <span className="text-lg">
+                              {s.role === 'label' ? '🏢' : s.role === 'artist' ? '🎤' : s.role === 'producer' ? '🎵' : '💼'}
+                            </span>
+                            <div>
+                              <p className="text-text-primary text-sm font-medium">{s.participant}</p>
+                              <p className="text-text-muted text-xs capitalize">{s.role}</p>
+                            </div>
+                          </div>
+                          <div className="text-center w-20">
+                            <p className="text-text-secondary text-sm font-semibold">{s.percentage}%</p>
+                            <div className="w-full h-1.5 bg-surface-3 rounded-full mt-1 overflow-hidden">
+                              <div className="h-full bg-primary rounded-full"
+                                style={{ width:`${s.percentage}%` }} />
+                            </div>
+                          </div>
+                          <div className="text-right w-28">
+                            <p className="text-primary font-bold">{formatCurrency(amount)}</p>
+                            <p className="text-text-muted text-xs">{formatRate(ratePerK(amount, streams))}/1K</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Per-contract export */}
+                  <div className="bg-surface-2 px-4 py-2 flex justify-end gap-3">
+                    <button
+                      onClick={() => exportSplitsExcel(
+                        artists.length > 1 ? artistRows : filtered,
+                        contract,
+                        `liquidacion-${contract.artist_name}`
+                      )}
+                      className="text-xs text-green-400 hover:underline flex items-center gap-1">
+                      <FileSpreadsheet className="w-3 h-3" /> Excel (5 hojas)
+                    </button>
+                    <button
+                      onClick={() => exportSplitsPdf(
+                        artists.length > 1 ? artistRows : filtered,
+                        contract,
+                        `liquidacion-${contract.artist_name}`
+                      )}
+                      className="text-xs text-red-400 hover:underline flex items-center gap-1">
+                      <FilePdf className="w-3 h-3" /> PDF profesional
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* No contracts CTA */}
+      {(!contracts || contracts.length === 0) && (
+        <div className="card mt-6 flex items-center gap-4">
+          <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Percent className="w-5 h-5 text-accent" />
+          </div>
+          <div className="flex-1">
+            <p className="text-text-primary font-medium text-sm">Configura splits de regalías</p>
+            <p className="text-text-muted text-xs mt-0.5">Crea contratos para calcular automáticamente la distribución entre artista, sello y productor.</p>
+          </div>
+          <Link to="/contracts" className="btn-secondary text-sm flex-shrink-0">
+            Ir a Contratos
+          </Link>
+        </div>
+      )}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import UploadPage from './pages/UploadPage'
 import ReportsPage from './pages/ReportsPage'
 import ReportDetailPage from './pages/ReportDetailPage'
 import AdminPage from './pages/AdminPage'
+import ContractsPage from './pages/ContractsPage'
 import Layout from './components/Layout'
 
 const Spinner = () => (
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
+          <Route path="/contracts" element={<ContractsPage />} />
           <Route path="/admin" element={
             <ProtectedRoute adminOnly>
               <AdminPage />

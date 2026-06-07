@@ -2,15 +2,16 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
   LayoutDashboard, Upload, FileText, LogOut,
-  Music2, ChevronRight, Shield
+  Music2, ChevronRight, Shield, FileSignature
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { motion } from 'framer-motion'
 
 const navItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/upload', icon: Upload, label: 'Subir Reporte' },
-  { to: '/reports', icon: FileText, label: 'Mis Reportes' },
+  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard'      },
+  { to: '/upload',     icon: Upload,          label: 'Subir Reporte'  },
+  { to: '/reports',    icon: FileText,        label: 'Mis Reportes'   },
+  { to: '/contracts',  icon: FileSignature,   label: 'Contratos'      },
 ]
 
 export default function Layout() {

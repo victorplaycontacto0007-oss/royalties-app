@@ -117,3 +117,34 @@ export type Profile = Database['public']['Tables']['profiles']['Row']
 export type Report = Database['public']['Tables']['reports']['Row']
 export type RoyaltyRecord = Database['public']['Tables']['royalty_records']['Row']
 export type ActivityLog = Database['public']['Tables']['activity_logs']['Row']
+
+// Splits module
+export interface Contract {
+  id: string
+  user_id: string
+  artist_name: string
+  label: string
+  notes: string | null
+  start_date: string | null
+  end_date: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  splits?: ContractSplit[]
+}
+
+export interface ContractSplit {
+  id: string
+  contract_id: string
+  participant: string
+  role: 'artist' | 'label' | 'producer' | 'other'
+  percentage: number
+  created_at: string
+}
+
+export interface SplitResult {
+  participant: string
+  role: string
+  percentage: number
+  amount: number
+}
