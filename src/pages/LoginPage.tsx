@@ -49,17 +49,78 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      {/* Background glows */}
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #0f0c29 0%, #1a1040 40%, #0d1b3e 100%)' }}>
+
+      {/* Animated background orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-accent/5 rounded-full blur-3xl" />
+        {/* Large orbs */}
+        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-20"
+          style={{ background: 'radial-gradient(circle, #6366f1 0%, transparent 70%)', animation: 'float1 8s ease-in-out infinite' }} />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full opacity-15"
+          style={{ background: 'radial-gradient(circle, #8b5cf6 0%, transparent 70%)', animation: 'float2 10s ease-in-out infinite' }} />
+        <div className="absolute top-[30%] right-[20%] w-[300px] h-[300px] rounded-full opacity-10"
+          style={{ background: 'radial-gradient(circle, #06b6d4 0%, transparent 70%)', animation: 'float3 7s ease-in-out infinite' }} />
+
+        {/* Grid overlay */}
+        <div className="absolute inset-0 opacity-[0.03]"
+          style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+
+        {/* Floating music notes */}
+        {['♪','♫','♩','♬','♭'].map((note, i) => (
+          <div key={i} className="absolute text-white/10 select-none"
+            style={{
+              fontSize: `${24 + i * 10}px`,
+              left: `${10 + i * 18}%`,
+              top: `${15 + (i % 3) * 25}%`,
+              animation: `floatNote${i % 3 + 1} ${6 + i}s ease-in-out infinite`,
+              animationDelay: `${i * 1.2}s`,
+            }}>
+            {note}
+          </div>
+        ))}
+
+        {/* Thin glowing lines */}
+        <div className="absolute inset-0"
+          style={{ background: 'linear-gradient(180deg, transparent 60%, rgba(99,102,241,0.08) 100%)' }} />
       </div>
+
+      <style>{`
+        @keyframes float1 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(30px, -30px) scale(1.05); }
+        }
+        @keyframes float2 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(-20px, 20px) scale(1.03); }
+        }
+        @keyframes float3 {
+          0%, 100% { transform: translate(0, 0); }
+          50% { transform: translate(15px, -15px); }
+        }
+        @keyframes floatNote1 {
+          0%, 100% { transform: translateY(0px) rotate(-5deg); opacity: 0.06; }
+          50% { transform: translateY(-20px) rotate(5deg); opacity: 0.12; }
+        }
+        @keyframes floatNote2 {
+          0%, 100% { transform: translateY(0px) rotate(5deg); opacity: 0.05; }
+          50% { transform: translateY(-30px) rotate(-5deg); opacity: 0.1; }
+        }
+        @keyframes floatNote3 {
+          0%, 100% { transform: translateY(0px); opacity: 0.04; }
+          50% { transform: translateY(-15px); opacity: 0.09; }
+        }
+      `}</style>
 
       {/* Main card */}
       <div
-        className="relative w-full max-w-3xl min-h-[520px] rounded-2xl shadow-2xl overflow-hidden border border-border"
-        style={{ background: '#111' }}
+        className="relative w-full max-w-3xl min-h-[520px] rounded-2xl shadow-2xl overflow-hidden"
+        style={{
+          background: 'rgba(255,255,255,0.04)',
+          backdropFilter: 'blur(24px)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          boxShadow: '0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
+        }}
       >
         {/* ── FORM PANELS (both sit side by side, shifted via translateX) ── */}
 
@@ -77,8 +138,8 @@ export default function LoginPage() {
                 <Music2 className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="font-semibold text-text-primary">Royalties</p>
-                <p className="text-text-muted text-xs">Music Analytics</p>
+                <p className="font-semibold text-white">Royalties</p>
+                <p className="text-white/50 text-xs">Music Analytics</p>
               </div>
             </div>
 
@@ -87,40 +148,46 @@ export default function LoginPage() {
                 <motion.div key="login"
                   initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }}
                   exit={{ opacity:0, y:-8 }} transition={{ duration:0.2 }}>
-                  <h2 className="text-2xl font-bold text-text-primary mb-1">Iniciar sesión</h2>
-                  <p className="text-text-muted text-sm mb-7">Bienvenido de vuelta</p>
+                  <h2 className="text-2xl font-bold text-white mb-1">Iniciar sesión</h2>
+                  <p className="text-white/50 text-sm mb-7">Bienvenido de vuelta</p>
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                       <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                        placeholder="Correo electrónico" className="input pl-10" required autoComplete="email" />
+                        placeholder="Correo electrónico"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-primary/60 transition-all"
+                        style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+                        required autoComplete="email" />
                     </div>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                       <input type={showPwd ? 'text' : 'password'} value={password}
                         onChange={e => setPassword(e.target.value)}
-                        placeholder="Contraseña" className="input pl-10 pr-10" required autoComplete="current-password" />
+                        placeholder="Contraseña"
+                        className="w-full pl-10 pr-10 py-2.5 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-primary/60 transition-all"
+                        style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+                        required autoComplete="current-password" />
                       <button type="button" onClick={() => setShowPwd(!showPwd)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary">
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70">
                         {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
                     {error && (
-                      <p className="text-error text-xs bg-error/10 border border-error/20 rounded-lg px-3 py-2">{error}</p>
+                      <p className="text-red-300 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>
                     )}
                     <button type="button" onClick={() => { setSubMode('forgot'); setError('') }}
-                      className="text-xs text-text-muted hover:text-primary transition-colors block">
+                      className="text-xs text-white/40 hover:text-primary transition-colors block">
                       ¿Olvidaste tu contraseña?
                     </button>
                     <button type="submit" disabled={loading}
-                      className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
+                      className="w-full py-2.5 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all"
+                      style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 4px 20px rgba(99,102,241,0.4)' }}>
                       {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                       {loading ? 'Ingresando...' : 'Iniciar sesión'}
                     </button>
                   </form>
-                  {/* Mobile link */}
                   <button onClick={() => setActive(true)}
-                    className="mt-5 text-xs text-text-muted hover:text-primary transition-colors block md:hidden text-center">
+                    className="mt-5 text-xs text-white/40 hover:text-primary transition-colors block md:hidden text-center">
                     ¿No tienes cuenta? Solicitar acceso →
                   </button>
                 </motion.div>
@@ -128,27 +195,31 @@ export default function LoginPage() {
                 <motion.div key="forgot"
                   initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }}
                   exit={{ opacity:0, y:-8 }} transition={{ duration:0.2 }}>
-                  <h2 className="text-2xl font-bold text-text-primary mb-1">Recuperar contraseña</h2>
-                  <p className="text-text-muted text-sm mb-7">Te enviaremos un link por email</p>
+                  <h2 className="text-2xl font-bold text-white mb-1">Recuperar contraseña</h2>
+                  <p className="text-white/50 text-sm mb-7">Te enviaremos un link por email</p>
                   {success ? (
-                    <div className="bg-success/10 border border-success/20 rounded-xl px-4 py-3 text-success text-sm">{success}</div>
+                    <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3 text-green-300 text-sm">{success}</div>
                   ) : (
                     <form onSubmit={handleReset} className="space-y-4">
                       <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                         <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                          placeholder="tu@email.com" className="input pl-10" required />
+                          placeholder="tu@email.com"
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-primary/60 transition-all"
+                          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+                          required />
                       </div>
-                      {error && <p className="text-error text-xs bg-error/10 border border-error/20 rounded-lg px-3 py-2">{error}</p>}
+                      {error && <p className="text-red-300 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>}
                       <button type="submit" disabled={loading}
-                        className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
+                        className="w-full py-2.5 rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all"
+                        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 4px 20px rgba(99,102,241,0.4)' }}>
                         {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                         Enviar email
                       </button>
                     </form>
                   )}
                   <button onClick={() => { setSubMode('login'); setError(''); setSuccess('') }}
-                    className="mt-4 text-xs text-text-muted hover:text-primary transition-colors block">
+                    className="mt-4 text-xs text-white/40 hover:text-primary transition-colors block">
                     ← Volver al login
                   </button>
                 </motion.div>
@@ -170,11 +241,11 @@ export default function LoginPage() {
             <div className="w-14 h-14 bg-green-500/10 rounded-2xl flex items-center justify-center mb-6">
               <MessageCircle className="w-7 h-7 text-green-400" />
             </div>
-            <h2 className="text-2xl font-bold text-text-primary mb-2">Solicitar acceso</h2>
-            <p className="text-text-muted text-sm mb-2 leading-relaxed">
-              Esta plataforma es <span className="text-text-secondary font-medium">privada</span>.
+            <h2 className="text-2xl font-bold text-white mb-2">Solicitar acceso</h2>
+            <p className="text-white/50 text-sm mb-2 leading-relaxed">
+              Esta plataforma es <span className="text-white/80 font-medium">privada</span>.
             </p>
-            <p className="text-text-muted text-sm mb-8 leading-relaxed">
+            <p className="text-white/50 text-sm mb-8 leading-relaxed">
               Contacta al administrador para obtener una cuenta. Una vez creada, podrás iniciar sesión con tu correo y contraseña.
             </p>
             <div className="space-y-3">
@@ -184,7 +255,7 @@ export default function LoginPage() {
                 Solicitar por WhatsApp
               </button>
               <button onClick={() => setActive(false)}
-                className="w-full text-xs text-text-muted hover:text-primary transition-colors text-center py-2">
+                className="w-full text-xs text-white/40 hover:text-primary transition-colors text-center py-2">
                 ← Ya tengo cuenta, iniciar sesión
               </button>
             </div>
