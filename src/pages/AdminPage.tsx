@@ -1,14 +1,52 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/utils'
 import {
   Users, Plus, Pencil, Trash2, Power, Loader2,
-  Shield, Activity, X, Check
+  Shield, Activity, X, Check, Clock
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Profile } from '../types/database'
+
+/** Formatea la duración en segundos a "Xd Xh Xm Xs" */
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds < 0) totalSeconds = 0
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+/** Reloj en tiempo real desde la fecha de creación del usuario */
+function TimeSince({ createdAt }: { createdAt: string }) {
+  const [elapsed, setElapsed] = useState(() =>
+    Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000)
+  )
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [createdAt])
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs text-text-muted font-mono tabular-nums"
+      title={`Creado el ${formatDate(createdAt)}`}
+    >
+      <Clock className="w-3 h-3 flex-shrink-0" />
+      {formatDuration(elapsed)}
+    </span>
+  )
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
@@ -110,6 +148,7 @@ export default function AdminPage() {
                         {u.id === currentUser?.id && <span className="ml-2 text-xs text-text-muted">(tú)</span>}
                       </p>
                       <p className="text-text-muted text-xs truncate">{u.email}</p>
+                      <TimeSince createdAt={u.created_at} />
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className={`badge ${u.role === 'admin' ? 'badge-primary' : 'bg-surface-3 text-text-secondary'}`}>
