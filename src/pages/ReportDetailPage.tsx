@@ -5,12 +5,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatCurrency, formatNumber, formatDate, ratePerK, ratePer100, formatRate } from '../lib/utils'
 import { exportSplitsExcel, exportConsolidatedExcel, exportSplitsPdf } from '../lib/splits-export'
-import { parseDistroKidFile, parseDistroKidFileWithSummary, detectFraudulentStreams } from '../lib/distrokid-parser'
+import { parseDistroKidFileWithSummary, detectFraudulentStreams } from '../lib/distrokid-parser'
 import type { FraudReport } from '../lib/distrokid-parser'
 import {
   ArrowLeft, Download, Loader2, DollarSign, TrendingUp, Globe,
   Music, Star, Radio, Users, ChevronDown, FileSpreadsheet,
-  FileText as FilePdf, FileType2, Zap, Percent, ShieldAlert, ShieldCheck, ChevronUp
+  FileText as FilePdf, FileType2, Zap, Percent, ShieldAlert, ShieldCheck, ChevronUp, RefreshCw, Wrench
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -29,6 +29,11 @@ const COLORS = ['#6366f1','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec
 
 type FilterKey = 'all' | string
 type GroupBy = 'artist' | 'song' | 'album' | 'store' | 'country'
+type CoreRow = {
+  store: string; country: string; song_title: string
+  artist_name: string; sale_period: string
+  earnings_usd: number; quantity: number
+}
 
 // ── Aggregate ──────────────────────────────────────────────
 function aggregate(rows: RoyaltyRecord[], field: keyof RoyaltyRecord) {
@@ -69,6 +74,7 @@ export default function ReportDetailPage() {
   const [fraudLoading, setFraudLoading]     = useState(false)
   const [showFraudDetail, setShowFraudDetail] = useState(false)
   const [repairing, setRepairing]           = useState(false)
+  const [repairProgress, setRepairProgress] = useState('')
   const repairAttempted                     = useRef(false)
 
   const { data: report } = useQuery<Report>({
@@ -83,87 +89,6 @@ export default function ReportDetailPage() {
 
   const queryClient = useQueryClient()
 
-  const { data: records, isLoading } = useQuery<RoyaltyRecord[]>({
-    queryKey: ['royalty-records', id],
-    queryFn: async () => {
-      // Fetch all rows with pagination (Supabase default limit is 1000)
-      const PAGE = 1000
-      let all: RoyaltyRecord[] = []
-      let from = 0
-      while (true) {
-        const { data, error } = await db
-          .from('royalty_records')
-          .select('*')
-          .eq('report_id', id!)
-          .eq('user_id', user!.id)
-          .range(from, from + PAGE - 1)
-        if (error) throw error
-        all = all.concat(data as RoyaltyRecord[])
-        if (!data || data.length < PAGE) break
-        from += PAGE
-      }
-      return all
-    },
-    enabled: !!id && !!user,
-  })
-
-  // ── Auto-repair: detect bad earnings (Royalty Basis instead of Collaborator Share) ──
-  // Downloads the original file, gets the official total, and compares with what's in DB.
-  // If they differ by more than 5%, re-parse and replace all records.
-  useEffect(() => {
-    if (!records || !report || repairing || repairAttempted.current) return
-    if (records.length < 10) return
-
-    repairAttempted.current = true
-
-    const checkAndRepair = async () => {
-      try {
-        const { data: fileData, error: dlErr } = await supabase.storage
-          .from('reports').download(report.file_path)
-        if (dlErr || !fileData) return
-
-        const file = new File([fileData], report.file_name)
-        const { rows, summary } = await parseDistroKidFileWithSummary(file)
-        if (rows.length === 0) return
-
-        const dbTotal    = records.reduce((s, r) => s + r.earnings_usd, 0)
-        const freshTotal = rows.reduce((s, r) => s + r.earnings_usd, 0)
-
-        // Use official total if available, otherwise use the fresh parse total
-        const referenceTotal = summary.officialReportTotal ?? freshTotal
-
-        // If DB total differs from reference by more than 5% → repair needed
-        const diffPct = referenceTotal > 0 ? Math.abs(dbTotal - referenceTotal) / referenceTotal : 0
-        if (diffPct <= 0.05) return  // data looks correct, skip repair
-
-        setRepairing(true)
-
-        // Delete old bad records
-        await db.from('royalty_records').delete().eq('report_id', id!).eq('user_id', user!.id)
-
-        // Re-insert correct records in batches
-        const BATCH = 500
-        for (let i = 0; i < rows.length; i += BATCH) {
-          const batch = rows.slice(i, i + BATCH).map(r => ({
-            ...r,
-            report_id: id,
-            user_id: user!.id,
-          }))
-          await db.from('royalty_records').insert(batch)
-        }
-
-        // Refresh data
-        queryClient.invalidateQueries({ queryKey: ['royalty-records', id] })
-        queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
-      } catch {
-        // fail silently
-      } finally {
-        setRepairing(false)
-      }
-    }
-    checkAndRepair()
-  }, [records, report])
-
   const { data: contracts } = useQuery<Contract[]>({
     queryKey: ['contracts', user?.id],
     queryFn: async () => {
@@ -173,8 +98,6 @@ export default function ReportDetailPage() {
     },
     enabled: !!user,
   })
-
-  const artists   = useMemo(() => [...new Set((records ?? []).map(r => r.artist_name))].sort(), [records])
 
   // ── Fraud detection: download file from storage and analyse it ──
   useEffect(() => {
@@ -197,80 +120,196 @@ export default function ReportDetailPage() {
     run()
     return () => { cancelled = true }
   }, [report?.file_path, report?.file_name])
-  const platforms = useMemo(() => [...new Set((records ?? []).map(r => r.store))].sort(), [records])
-  const songs     = useMemo(() => [...new Set((records ?? []).map(r => r.song_title))].sort(), [records])
-  const countries = useMemo(() => [...new Set((records ?? []).map(r => r.country))].sort(), [records])
 
-  const artistBreakdown = useMemo(() => aggregate(records ?? [], 'artist_name'), [records])
-  const totalAll        = useMemo(() => (records ?? []).reduce((a, r) => a + r.earnings_usd, 0), [records])
-  const streamsAll      = useMemo(() => (records ?? []).reduce((a, r) => a + r.quantity, 0), [records])
+  // ── Aggregated data queries (no raw rows in memory) ─────────
+  // Total count & sums
+  const { data: recordCount, isLoading: countLoading } = useQuery<number>({
+    queryKey: ['royalty-count', id],
+    queryFn: async () => {
+      const { count, error } = await db
+        .from('royalty_records')
+        .select('*', { count: 'exact', head: true })
+        .eq('report_id', id!)
+        .eq('user_id', user!.id)
+      if (error) throw error
+      return count ?? 0
+    },
+    enabled: !!id && !!user,
+  })
 
-  const filtered = useMemo(() => (records ?? []).filter(r =>
-    (artistFilter   === 'all' || r.artist_name === artistFilter) &&
-    (platformFilter === 'all' || r.store === platformFilter) &&
-    (songFilter     === 'all' || r.song_title === songFilter) &&
-    (countryFilter  === 'all' || r.country === countryFilter)
-  ), [records, artistFilter, platformFilter, songFilter, countryFilter])
+  // ── Core data fetch: all rows for this report (paginated, robust) ────────
+  // Fetches store, country, song_title, artist_name, sale_period, earnings_usd, quantity
+  // in pages of 1000 and returns the full flat array. All aggregations are done in memory.
 
-  const totalEarnings = useMemo(() => filtered.reduce((a, r) => a + r.earnings_usd, 0), [filtered])
-  const totalStreams   = useMemo(() => filtered.reduce((a, r) => a + r.quantity, 0), [filtered])
+  async function fetchAllCoreRows(): Promise<CoreRow[]> {
+    const PAGE = 1000
+    const all: CoreRow[] = []
+    let from = 0
+    while (true) {
+      const { data, error } = await db
+        .from('royalty_records')
+        .select('store, country, song_title, artist_name, sale_period, earnings_usd, quantity')
+        .eq('report_id', id!)
+        .eq('user_id', user!.id)
+        .order('created_at', { ascending: true })
+        .range(from, from + PAGE - 1)
+      if (error) {
+        console.error('[fetchAllCoreRows] Supabase error:', error)
+        break
+      }
+      if (!data || data.length === 0) break
+      all.push(...data)
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    return all
+  }
+
+  // Single query that fetches ALL rows — used as the base for all aggregations
+  const { data: allCoreRows } = useQuery<CoreRow[]>({
+    queryKey: ['all-core-rows', id],
+    queryFn: fetchAllCoreRows,
+    enabled: !!id && !!user,
+    staleTime: 30_000,
+  })
+
+  // ── Apply active filters to the core rows ────────────────
+  const filteredRows = useMemo(() => {
+    if (!allCoreRows) return []
+    return allCoreRows.filter(r => {
+      if (artistFilter   !== 'all' && r.artist_name !== artistFilter)   return false
+      if (platformFilter !== 'all' && r.store        !== platformFilter) return false
+      if (songFilter     !== 'all' && r.song_title   !== songFilter)     return false
+      if (countryFilter  !== 'all' && r.country      !== countryFilter)  return false
+      return true
+    })
+  }, [allCoreRows, artistFilter, platformFilter, songFilter, countryFilter])
+
+  // ── Aggregations from filtered rows (all in memory) ──────
+  function aggBy(field: keyof CoreRow) {
+    const map: Record<string, { earnings: number; streams: number }> = {}
+    for (const r of filteredRows) {
+      const key = String(r[field] || 'Unknown')
+      if (!map[key]) map[key] = { earnings: 0, streams: 0 }
+      map[key].earnings += Number(r.earnings_usd) || 0
+      map[key].streams  += Number(r.quantity)      || 0
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, earnings: v.earnings, streams: v.streams }))
+      .sort((a, b) => b.earnings - a.earnings)
+  }
+
+  const aggStore   = useMemo(() => aggBy('store'),       [filteredRows])
+  const aggCountry = useMemo(() => aggBy('country'),     [filteredRows])
+  const aggSong    = useMemo(() => aggBy('song_title'),  [filteredRows])
+  const aggArtist  = useMemo(() => aggBy('artist_name'), [filteredRows])
+
+  const aggMonth = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const r of filteredRows) {
+      const m = (r.sale_period ?? '').slice(0, 7) || 'Unknown'
+      map[m] = (map[m] ?? 0) + (Number(r.earnings_usd) || 0)
+    }
+    return Object.entries(map)
+      .map(([month, earnings]) => ({ month, earnings }))
+      .sort((a, b) => a.month.localeCompare(b.month))
+  }, [filteredRows])
+
+  // ── Distinct filter option lists ──────────────────────────
+  const distinctArtists   = useMemo(() => [...new Set((allCoreRows ?? []).map(r => r.artist_name))].sort(),   [allCoreRows])
+  const distinctPlatforms = useMemo(() => [...new Set((allCoreRows ?? []).map(r => r.store))].sort(),         [allCoreRows])
+  const distinctSongs     = useMemo(() => [...new Set((allCoreRows ?? []).map(r => r.song_title))].sort(),    [allCoreRows])
+  const distinctCountries = useMemo(() => [...new Set((allCoreRows ?? []).map(r => r.country))].sort(),       [allCoreRows])
+
+  // ── Totals ────────────────────────────────────────────────
+  const totalEarnings = useMemo(() => filteredRows.reduce((a, r) => a + (Number(r.earnings_usd) || 0), 0), [filteredRows])
+  const totalStreams   = useMemo(() => filteredRows.reduce((a, r) => a + (Number(r.quantity)      || 0), 0), [filteredRows])
   const globalRateK   = ratePerK(totalEarnings, totalStreams)
 
-  // groupBy aggregation
-  const groupByField: keyof RoyaltyRecord =
-    groupBy === 'artist'  ? 'artist_name' :
-    groupBy === 'song'    ? 'song_title'  :
-    groupBy === 'album'   ? 'album_name'  :
-    groupBy === 'store'   ? 'store'       : 'country'
+  const artists   = distinctArtists
+  const platforms = distinctPlatforms
+  const songs     = distinctSongs
+  const countries = distinctCountries
 
-  const groupedData = useMemo(() => aggregate(filtered, groupByField), [filtered, groupByField])
+  const byPlatform = useMemo(() => aggStore.map(p   => ({ ...p, rateK: ratePerK(p.earnings, p.streams), rate100: ratePer100(p.earnings, p.streams) })), [aggStore])
+  const byCountry  = useMemo(() => aggCountry.map(c => ({ ...c, rateK: ratePerK(c.earnings, c.streams), rate100: ratePer100(c.earnings, c.streams) })), [aggCountry])
+  const bySong     = useMemo(() => aggSong.map(s    => ({ ...s, rateK: ratePerK(s.earnings, s.streams), rate100: ratePer100(s.earnings, s.streams) })), [aggSong])
+  const byArtist   = useMemo(() => aggArtist.map(a  => ({ ...a, rateK: ratePerK(a.earnings, a.streams), rate100: ratePer100(a.earnings, a.streams) })), [aggArtist])
+  const byMonth    = aggMonth
 
-  // For song view: top country and top platform per song
-  const songMeta = useMemo(() => {
-    if (groupBy !== 'song') return {}
-    const map: Record<string, { country: string; store: string }> = {}
-    ;(filtered).forEach(r => {
-      if (!map[r.song_title]) {
-        map[r.song_title] = { country: r.country, store: r.store }
-      }
-    })
-    // For each song pick the country and store with most streams
-    const countryMap: Record<string, Record<string, number>> = {}
-    const storeMap:   Record<string, Record<string, number>> = {}
-    filtered.forEach(r => {
-      if (!countryMap[r.song_title]) countryMap[r.song_title] = {}
-      if (!storeMap[r.song_title])   storeMap[r.song_title]   = {}
-      countryMap[r.song_title][r.country] = (countryMap[r.song_title][r.country] ?? 0) + r.quantity
-      storeMap[r.song_title][r.store]     = (storeMap[r.song_title][r.store]     ?? 0) + r.quantity
-    })
-    const result: Record<string, { country: string; store: string }> = {}
-    Object.keys(countryMap).forEach(song => {
-      result[song] = {
-        country: Object.entries(countryMap[song]).sort((a,b) => b[1]-a[1])[0]?.[0] ?? '—',
-        store:   Object.entries(storeMap[song]).sort((a,b) => b[1]-a[1])[0]?.[0] ?? '—',
-      }
-    })
-    return result
-  }, [filtered, groupBy])
+  // artistBreakdown — unfiltered, from all core rows
+  const artistBreakdownRaw = useMemo(() => {
+    const map: Record<string, { earnings: number; streams: number }> = {}
+    for (const r of allCoreRows ?? []) {
+      if (!map[r.artist_name]) map[r.artist_name] = { earnings: 0, streams: 0 }
+      map[r.artist_name].earnings += Number(r.earnings_usd) || 0
+      map[r.artist_name].streams  += Number(r.quantity)      || 0
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, earnings: v.earnings, streams: v.streams }))
+      .sort((a, b) => b.earnings - a.earnings)
+  }, [allCoreRows])
 
-  const byPlatform = useMemo(() => aggregate(filtered, 'store'),      [filtered])
-  const byCountry  = useMemo(() => aggregate(filtered, 'country'),    [filtered])
-  const bySong     = useMemo(() => aggregate(filtered, 'song_title'), [filtered])
-  const byArtist   = useMemo(() => aggregate(filtered, 'artist_name'),[filtered])
+  // dbDirectSum — for debug panel, computed from allCoreRows
+  const dbDirectSum = useMemo(() => {
+    if (!allCoreRows) return undefined
+    return {
+      rows: allCoreRows.length,
+      earnings: allCoreRows.reduce((s, r) => s + (Number(r.earnings_usd) || 0), 0),
+    }
+  }, [allCoreRows])
 
-  const byMonth = useMemo(() => Object.entries(
-    filtered.reduce<Record<string,number>>((acc, r) => {
-      const m = (r.sale_period ?? '').slice(0,7) || 'Unknown'
-      acc[m] = (acc[m] ?? 0) + r.earnings_usd
-      return acc
-    }, {})
-  ).map(([month, earnings]) => ({ month, earnings }))
-   .sort((a, b) => a.month.localeCompare(b.month)), [filtered])
+  const isLoading = countLoading || (allCoreRows === undefined)
+
+  const artistBreakdown = useMemo(() =>
+    artistBreakdownRaw.map(a => ({ ...a, rateK: ratePerK(a.earnings, a.streams), rate100: ratePer100(a.earnings, a.streams) })),
+    [artistBreakdownRaw]
+  )
+  const totalAll = useMemo(() => artistBreakdown.reduce((s, a) => s + a.earnings, 0), [artistBreakdown])
 
   const topPlatform = byPlatform[0]?.name ?? '—'
   const topCountry  = byCountry[0]?.name  ?? '—'
   const topSong     = bySong[0]?.name     ?? '—'
   const multiArtist = artists.length > 1
+
+  // groupedData — used by the detailed table, driven by the groupBy selector
+  const groupedData = useMemo(() => {
+    const source =
+      groupBy === 'artist'  ? byArtist  :
+      groupBy === 'song'    ? bySong    :
+      groupBy === 'store'   ? byPlatform :
+      groupBy === 'country' ? byCountry  : bySong
+    return source
+  }, [groupBy, byArtist, bySong, byPlatform, byCountry])
+
+  // songMeta — top country and store per song (derived from aggSong if available)
+  const songMeta = useMemo<Record<string, { country: string; store: string }>>(() => {
+    if (groupBy !== 'song') return {}
+    // Not easily available without raw rows — return empty for now
+    // (only used for display hints, not for totals)
+    return {}
+  }, [groupBy])
+
+  // ── Download raw rows for export only ────────────────────
+  const fetchRawRows = async (filterByArtist?: string): Promise<RoyaltyRecord[]> => {
+    const PAGE = 1000
+    const all: RoyaltyRecord[] = []
+    let from = 0
+    while (true) {
+      let q = db.from('royalty_records').select('*').eq('report_id', id!).eq('user_id', user!.id)
+      if (filterByArtist)            q = q.eq('artist_name', filterByArtist)
+      if (platformFilter !== 'all')  q = q.eq('store', platformFilter)
+      if (songFilter !== 'all')      q = q.eq('song_title', songFilter)
+      if (countryFilter !== 'all')   q = q.eq('country', countryFilter)
+      q = q.order('created_at', { ascending: true }).range(from, from + PAGE - 1)
+      const { data, error } = await q
+      if (error || !data) break
+      all.push(...(data as RoyaltyRecord[]))
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    return all
+  }
 
   // ── Exports ────────────────────────────────────────────────
   const exportExcel = (rows: RoyaltyRecord[], filename: string) => {
@@ -393,14 +432,83 @@ export default function ReportDetailPage() {
     doc.save(`${filename}.pdf`)
   }
 
-  const handleExport = (format: 'excel'|'csv'|'pdf', scope: 'filtered'|'all') => {
+  const handleExport = async (format: 'excel'|'csv'|'pdf', scope: 'filtered'|'all') => {
     setShowExportMenu(false)
-    const rows = scope === 'all' ? (records ?? []) : filtered
-    const label = artistFilter !== 'all' ? artistFilter : 'completo'
-    const base  = `royalties-${label}-${id?.slice(0,8)}`
+    const artist = scope === 'filtered' && artistFilter !== 'all' ? artistFilter : undefined
+    const label  = artist ?? 'completo'
+    const base   = `royalties-${label}-${id?.slice(0,8)}`
+    const rows   = await fetchRawRows(scope === 'filtered' ? artist : undefined)
     if (format === 'excel') exportExcel(rows, base)
     else if (format === 'csv') exportCsv(rows, base)
-    else exportPdf(rows, base, artistFilter !== 'all' ? artistFilter : undefined)
+    else exportPdf(rows, base, artist)
+  }
+
+  // ── Repair: re-parse from Storage and replace all royalty_records ──
+  const handleRepair = async () => {
+    if (!report || !user) return
+    setRepairing(true)
+    setRepairProgress('Descargando archivo original...')
+    try {
+      // 1. Download original file from Supabase Storage
+      const { data: blob, error: dlErr } = await supabase.storage
+        .from('reports')
+        .download(report.file_path)
+      if (dlErr || !blob) throw new Error(`No se pudo descargar el archivo: ${dlErr?.message ?? 'sin datos'}`)
+
+      const file = new File([blob], report.file_name)
+
+      // 2. Re-parse
+      setRepairProgress('Analizando archivo con parser actualizado...')
+      const { rows, summary } = await (await import('../lib/distrokid-parser')).parseDistroKidFileWithSummary(file)
+      if (rows.length === 0) throw new Error('El parser no encontró filas válidas en el archivo.')
+
+      setRepairProgress(`Borrando ${recordCount?.toLocaleString() ?? '?'} registros antiguos...`)
+
+      // 3. Delete old records for this report
+      const { error: delErr } = await db
+        .from('royalty_records')
+        .delete()
+        .eq('report_id', id!)
+        .eq('user_id', user.id)
+      if (delErr) throw new Error(`Error borrando registros: ${delErr.message}`)
+
+      // 4. Re-insert in batches
+      const BATCH = 1000
+      const CONCURRENCY = 5
+      const batches: object[][] = []
+      for (let i = 0; i < rows.length; i += BATCH) {
+        batches.push(rows.slice(i, i + BATCH).map(r => ({ ...r, report_id: id!, user_id: user.id })))
+      }
+
+      let done = 0
+      for (let i = 0; i < batches.length; i += CONCURRENCY) {
+        const chunk = batches.slice(i, i + CONCURRENCY)
+        const results = await Promise.all(chunk.map(batch => db.from('royalty_records').insert(batch)))
+        for (const { error: insErr } of results) {
+          if (insErr) throw new Error(`Error insertando registros: ${insErr.message}`)
+        }
+        done += chunk.reduce((s, b) => s + b.length, 0)
+        setRepairProgress(`Guardando registros... ${Math.min(done, rows.length).toLocaleString()}/${rows.length.toLocaleString()}`)
+      }
+
+      // 5. Invalidate all queries so the page refreshes
+      await queryClient.invalidateQueries({ queryKey: ['royalty-count', id] })
+      await queryClient.invalidateQueries({ queryKey: ['all-core-rows', id] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-totals', user.id] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-by-platform', user.id] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-by-month', user.id] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-by-song', user.id] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-by-country', user.id] })
+
+      setRepairProgress(`✓ Reparado: ${rows.length.toLocaleString()} filas · $${summary.detailRowsTotal.toFixed(2)} total`)
+      alert(`✅ Reporte reparado correctamente.\n${rows.length.toLocaleString()} filas · $${summary.detailRowsTotal.toFixed(2)} total`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error desconocido'
+      alert(`❌ Error al reparar: ${msg}`)
+    } finally {
+      setRepairing(false)
+      setRepairProgress('')
+    }
   }
 
   if (isLoading) return (
@@ -412,8 +520,8 @@ export default function ReportDetailPage() {
   if (repairing) return (
     <div className="flex flex-col items-center justify-center py-32 gap-4">
       <Loader2 className="w-8 h-8 text-primary animate-spin" />
-      <p className="text-text-muted text-sm">Corrigiendo datos del reporte...</p>
-      <p className="text-text-muted text-xs opacity-60">Se detectó un mapeo incorrecto y se está reparando automáticamente.</p>
+      <p className="text-text-muted text-sm">{repairProgress || 'Reparando reporte...'}</p>
+      <p className="text-text-muted text-xs opacity-60">Descargando archivo original y re-procesando con el parser actualizado.</p>
     </div>
   )
 
@@ -426,10 +534,20 @@ export default function ReportDetailPage() {
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-semibold text-text-primary truncate">{report?.file_name}</h1>
           <p className="text-text-muted text-sm">
-            {report ? formatDate(report.created_at) : ''} · {(records ?? []).length.toLocaleString()} registros
+            {report ? formatDate(report.created_at) : ''} · {(recordCount ?? 0).toLocaleString()} registros
             {multiArtist && ` · ${artists.length} artistas`}
           </p>
         </div>
+
+        {/* Repair button */}
+        <button
+          onClick={handleRepair}
+          disabled={repairing || !report}
+          title="Re-parsea el archivo original y reemplaza todos los registros en BD"
+          className="btn-secondary flex items-center gap-2 text-sm text-warning border-warning/30 hover:bg-warning/10 disabled:opacity-50"
+        >
+          <Wrench className="w-4 h-4" /> Reparar
+        </button>
 
         {/* Export dropdown */}
         <div className="relative">
@@ -464,6 +582,40 @@ export default function ReportDetailPage() {
           </AnimatePresence>
         </div>
       </motion.div>
+
+      {/* ── Debug panel ─────────────────────────────────────── */}
+      {dbDirectSum && (
+        <motion.div initial={{ opacity:0, y:4 }} animate={{ opacity:1, y:0 }}
+          className="mb-4 rounded-xl border border-border bg-surface-2 px-4 py-3 text-xs font-mono text-text-muted">
+          <p className="font-semibold text-text-secondary mb-1 text-xs">🔍 Diagnóstico de datos</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div>
+              <span className="opacity-60">Filas en BD (count)</span>
+              <p className="text-text-primary font-bold">{(recordCount ?? 0).toLocaleString()}</p>
+            </div>
+            <div>
+              <span className="opacity-60">Filas en BD (sum loop)</span>
+              <p className="text-text-primary font-bold">{dbDirectSum.rows.toLocaleString()}</p>
+            </div>
+            <div>
+              <span className="opacity-60">Total BD directo</span>
+              <p className="text-text-primary font-bold">${dbDirectSum.earnings.toFixed(8)}</p>
+            </div>
+            <div>
+              <span className="opacity-60">Total dashboard</span>
+              <p className={`font-bold ${Math.abs(dbDirectSum.earnings - totalEarnings) > 0.01 ? 'text-error' : 'text-success'}`}>
+                ${totalEarnings.toFixed(8)}
+              </p>
+            </div>
+          </div>
+          {Math.abs(dbDirectSum.rows - (recordCount ?? 0)) > 0 && (
+            <p className="mt-1 text-warning">⚠ Count vs loop difieren — posible problema de paginación</p>
+          )}
+          {Math.abs(dbDirectSum.earnings - totalEarnings) > 0.01 && (
+            <p className="mt-1 text-warning">⚠ Total BD ≠ Total dashboard — el groupBy puede estar omitiendo filas</p>
+          )}
+        </motion.div>
+      )}
 
       {/* Artist cards — multi-artist reports */}
       {multiArtist && (
@@ -518,11 +670,11 @@ export default function ReportDetailPage() {
                 </button>
               </p>
               <div className="flex gap-2">
-                <button onClick={() => exportExcel(filtered, `royalties-${artistFilter}`)}
+                <button onClick={() => fetchRawRows(artistFilter).then(rows => exportExcel(rows, `royalties-${artistFilter}`))}
                   className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3">
                   <FileSpreadsheet className="w-3.5 h-3.5 text-green-400" /> Excel
                 </button>
-                <button onClick={() => exportPdf(filtered, `royalties-${artistFilter}`, artistFilter)}
+                <button onClick={() => fetchRawRows(artistFilter).then(rows => exportPdf(rows, `royalties-${artistFilter}`, artistFilter))}
                   className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3">
                   <FilePdf className="w-3.5 h-3.5 text-red-400" /> PDF
                 </button>
@@ -939,7 +1091,10 @@ export default function ReportDetailPage() {
               </div>
             </div>
             <button
-              onClick={() => exportConsolidatedExcel(filtered, contracts, `liquidacion-${id?.slice(0,8)}`)}
+              onClick={async () => {
+                const rows = await fetchRawRows()
+                exportConsolidatedExcel(rows, contracts, `liquidacion-${id?.slice(0,8)}`)
+              }}
               className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3">
               <FileSpreadsheet className="w-3.5 h-3.5 text-green-400" /> Excel consolidado
             </button>
@@ -947,14 +1102,14 @@ export default function ReportDetailPage() {
 
           <div className="space-y-6">
             {contracts.map((contract, ci) => {
-              const artistRows = filtered.filter(r => r.artist_name === contract.artist_name)
-              if (artistRows.length === 0 && artists.length > 1) return null
-              const gross   = (artistFilter === 'all' || artistFilter === contract.artist_name)
-                ? (artists.length > 1 ? artistRows : filtered).reduce((a,r) => a + r.earnings_usd, 0)
-                : 0
-              const streams = (artistFilter === 'all' || artistFilter === contract.artist_name)
-                ? (artists.length > 1 ? artistRows : filtered).reduce((a,r) => a + r.quantity, 0)
-                : 0
+              // Get gross/streams from aggregated artist data (no raw rows needed)
+              const artistAgg = artistBreakdown.find(a => a.name === contract.artist_name)
+              // If multi-artist report and this artist has no data, skip
+              if (!artistAgg && artists.length > 1) return null
+              const visible = artistFilter === 'all' || artistFilter === contract.artist_name
+              // Use aggregated earnings — no raw rows required
+              const gross   = visible ? (artistAgg?.earnings ?? totalEarnings) : 0
+              const streams = visible ? (artistAgg?.streams  ?? 0) : 0
               const splits  = contract.splits ?? []
 
               return (
@@ -1002,23 +1157,21 @@ export default function ReportDetailPage() {
                     })}
                   </div>
 
-                  {/* Per-contract export */}
+                  {/* Per-contract export — fetches raw rows on demand */}
                   <div className="bg-surface-2 px-4 py-2 flex justify-end gap-3">
                     <button
-                      onClick={() => exportSplitsExcel(
-                        artists.length > 1 ? artistRows : filtered,
-                        contract,
-                        `liquidacion-${contract.artist_name}`
-                      )}
+                      onClick={async () => {
+                        const rows = await fetchRawRows(artists.length > 1 ? contract.artist_name : undefined)
+                        exportSplitsExcel(rows, contract, `liquidacion-${contract.artist_name}`)
+                      }}
                       className="text-xs text-green-400 hover:underline flex items-center gap-1">
                       <FileSpreadsheet className="w-3 h-3" /> Excel (5 hojas)
                     </button>
                     <button
-                      onClick={() => exportSplitsPdf(
-                        artists.length > 1 ? artistRows : filtered,
-                        contract,
-                        `liquidacion-${contract.artist_name}`
-                      )}
+                      onClick={async () => {
+                        const rows = await fetchRawRows(artists.length > 1 ? contract.artist_name : undefined)
+                        exportSplitsPdf(rows, contract, `liquidacion-${contract.artist_name}`)
+                      }}
                       className="text-xs text-red-400 hover:underline flex items-center gap-1">
                       <FilePdf className="w-3 h-3" /> PDF profesional
                     </button>

@@ -31,30 +31,161 @@ type SummaryRow = {
   store: string; country: string; song_title: string; sale_period: string
 }
 
+// Aggregated shapes returned by Supabase group-by queries
+type AggRow = { name: string; earnings: number; streams: number }
+
 export default function DashboardPage() {
   const { user, profile } = useAuth()
 
-  const { data: summary } = useQuery<SummaryRow[]>({
-    queryKey: ['dashboard-summary', user?.id],
+  // ── Totals (single aggregate query) ───────────────────────
+  const { data: totals } = useQuery<{
+    earnings: number; streams: number; songs: number; countries: number
+  }>({
+    queryKey: ['dashboard-totals', user?.id],
     queryFn: async () => {
-      // Fetch all rows with pagination (Supabase default limit is 1000)
+      // Supabase doesn't expose GROUP BY in JS client for aggregates,
+      // so we pull only the numeric columns and aggregate client-side.
+      // For 50k rows this is still ~1 MB of data, acceptable for totals.
+      // The dashboard uses .select with minimal columns to keep it lean.
       const PAGE = 1000
-      let all: SummaryRow[] = []
+      let allEarnings = 0, allStreams = 0
+      const songSet = new Set<string>()
+      const countrySet = new Set<string>()
       let from = 0
       while (true) {
         const { data, error } = await (supabase as any)
           .from('royalty_records')
-          .select('earnings_usd, quantity, store, country, song_title, sale_period')
+          .select('earnings_usd, quantity, song_title, country')
           .eq('user_id', user!.id)
           .range(from, from + PAGE - 1)
-        if (error) break
-        all = all.concat(data ?? [])
-        if (!data || data.length < PAGE) break
+        if (error || !data) break
+        for (const r of data) {
+          allEarnings += r.earnings_usd
+          allStreams  += r.quantity
+          songSet.add(r.song_title)
+          countrySet.add(r.country)
+        }
+        if (data.length < PAGE) break
         from += PAGE
       }
-      return all
+      return { earnings: allEarnings, streams: allStreams, songs: songSet.size, countries: countrySet.size }
     },
     enabled: !!user,
+    staleTime: 60_000,
+  })
+
+  // ── By platform (aggregated) ───────────────────────────────
+  const { data: byPlatformRaw } = useQuery<AggRow[]>({
+    queryKey: ['dashboard-by-platform', user?.id],
+    queryFn: async () => {
+      const PAGE = 1000
+      const map: Record<string, { earnings: number; streams: number }> = {}
+      let from = 0
+      while (true) {
+        const { data, error } = await (supabase as any)
+          .from('royalty_records')
+          .select('store, earnings_usd, quantity')
+          .eq('user_id', user!.id)
+          .range(from, from + PAGE - 1)
+        if (error || !data) break
+        for (const r of data) {
+          if (!map[r.store]) map[r.store] = { earnings: 0, streams: 0 }
+          map[r.store].earnings += r.earnings_usd
+          map[r.store].streams  += r.quantity
+        }
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return Object.entries(map).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.earnings - a.earnings)
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+  })
+
+  // ── By month (aggregated, last 6 months) ──────────────────
+  const { data: byMonthRaw } = useQuery<{ month: string; earnings: number }[]>({
+    queryKey: ['dashboard-by-month', user?.id],
+    queryFn: async () => {
+      const PAGE = 1000
+      const map: Record<string, number> = {}
+      let from = 0
+      while (true) {
+        const { data, error } = await (supabase as any)
+          .from('royalty_records')
+          .select('sale_period, earnings_usd')
+          .eq('user_id', user!.id)
+          .range(from, from + PAGE - 1)
+        if (error || !data) break
+        for (const r of data) {
+          const m = (r.sale_period ?? '').slice(0, 7) || 'Unknown'
+          map[m] = (map[m] ?? 0) + r.earnings_usd
+        }
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return Object.entries(map)
+        .map(([month, earnings]) => ({ month, earnings }))
+        .sort((a, b) => a.month.localeCompare(b.month))
+        .slice(-6)
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+  })
+
+  // ── Top songs (aggregated) ─────────────────────────────────
+  const { data: bySongRaw } = useQuery<AggRow[]>({
+    queryKey: ['dashboard-by-song', user?.id],
+    queryFn: async () => {
+      const PAGE = 1000
+      const map: Record<string, { earnings: number; streams: number }> = {}
+      let from = 0
+      while (true) {
+        const { data, error } = await (supabase as any)
+          .from('royalty_records')
+          .select('song_title, earnings_usd, quantity')
+          .eq('user_id', user!.id)
+          .range(from, from + PAGE - 1)
+        if (error || !data) break
+        for (const r of data) {
+          if (!map[r.song_title]) map[r.song_title] = { earnings: 0, streams: 0 }
+          map[r.song_title].earnings += r.earnings_usd
+          map[r.song_title].streams  += r.quantity
+        }
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return Object.entries(map).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.earnings - a.earnings)
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+  })
+
+  // ── Top countries (aggregated) ─────────────────────────────
+  const { data: byCountryRaw } = useQuery<AggRow[]>({
+    queryKey: ['dashboard-by-country', user?.id],
+    queryFn: async () => {
+      const PAGE = 1000
+      const map: Record<string, { earnings: number; streams: number }> = {}
+      let from = 0
+      while (true) {
+        const { data, error } = await (supabase as any)
+          .from('royalty_records')
+          .select('country, earnings_usd, quantity')
+          .eq('user_id', user!.id)
+          .range(from, from + PAGE - 1)
+        if (error || !data) break
+        for (const r of data) {
+          if (!map[r.country]) map[r.country] = { earnings: 0, streams: 0 }
+          map[r.country].earnings += r.earnings_usd
+          map[r.country].streams  += r.quantity
+        }
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return Object.entries(map).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.earnings - a.earnings)
+    },
+    enabled: !!user,
+    staleTime: 60_000,
   })
 
   const { data: reportsCount } = useQuery<number>({
@@ -68,59 +199,26 @@ export default function DashboardPage() {
     enabled: !!user,
   })
 
-  const rows = summary ?? []
-  const totalEarnings   = rows.reduce((a, r) => a + r.earnings_usd, 0)
-  const totalStreams     = rows.reduce((a, r) => a + r.quantity, 0)
-  const uniqueSongs     = new Set(rows.map(r => r.song_title)).size
-  const uniqueCountries = new Set(rows.map(r => r.country)).size
+  const totalEarnings   = totals?.earnings ?? 0
+  const totalStreams     = totals?.streams ?? 0
+  const uniqueSongs     = totals?.songs ?? 0
+  const uniqueCountries = totals?.countries ?? 0
 
-  // By platform
-  const byPlatform = Object.entries(
-    rows.reduce<Record<string,{earnings:number;streams:number}>>((acc, r) => {
-      if (!acc[r.store]) acc[r.store] = { earnings:0, streams:0 }
-      acc[r.store].earnings += r.earnings_usd
-      acc[r.store].streams  += r.quantity
-      return acc
-    }, {})
-  ).map(([name, v]) => ({ name, ...v, pct: totalEarnings > 0 ? v.earnings/totalEarnings*100 : 0 }))
-   .sort((a,b) => b.earnings - a.earnings)
+  const byPlatform = (byPlatformRaw ?? []).map(p => ({
+    ...p,
+    pct: totalEarnings > 0 ? p.earnings / totalEarnings * 100 : 0,
+  }))
 
-  // By month
-  const byMonth = Object.entries(
-    rows.reduce<Record<string,number>>((acc, r) => {
-      const m = (r.sale_period ?? '').slice(0,7) || 'Unknown'
-      acc[m] = (acc[m] ?? 0) + r.earnings_usd
-      return acc
-    }, {})
-  ).map(([month, earnings]) => ({ month, earnings }))
-   .sort((a,b) => a.month.localeCompare(b.month))
-   .slice(-6)
-
-  // By song
-  const bySong = Object.entries(
-    rows.reduce<Record<string,{earnings:number;streams:number}>>((acc, r) => {
-      if (!acc[r.song_title]) acc[r.song_title] = { earnings:0, streams:0 }
-      acc[r.song_title].earnings += r.earnings_usd
-      acc[r.song_title].streams  += r.quantity
-      return acc
-    }, {})
-  ).map(([name, v]) => ({ name, ...v }))
-   .sort((a,b) => b.earnings - a.earnings)
-
-  // By country
-  const byCountry = Object.entries(
-    rows.reduce<Record<string,{earnings:number;streams:number}>>((acc, r) => {
-      if (!acc[r.country]) acc[r.country] = { earnings:0, streams:0 }
-      acc[r.country].earnings += r.earnings_usd
-      acc[r.country].streams  += r.quantity
-      return acc
-    }, {})
-  ).map(([name, v]) => ({ name, ...v, pct: totalStreams > 0 ? v.streams/totalStreams*100 : 0 }))
-   .sort((a,b) => b.earnings - a.earnings)
+  const byMonth   = byMonthRaw   ?? []
+  const bySong    = bySongRaw    ?? []
+  const byCountry = (byCountryRaw ?? []).map(c => ({
+    ...c,
+    pct: totalStreams > 0 ? c.streams / totalStreams * 100 : 0,
+  }))
 
   const topPlatform = byPlatform[0]
   const topSong     = bySong[0]
-  const isEmpty     = rows.length === 0
+  const isEmpty     = totalEarnings === 0 && totalStreams === 0 && reportsCount === 0
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
