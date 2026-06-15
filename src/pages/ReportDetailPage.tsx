@@ -282,13 +282,29 @@ export default function ReportDetailPage() {
     return source
   }, [groupBy, byArtist, bySong, byPlatform, byCountry])
 
-  // songMeta — top country and store per song (derived from aggSong if available)
+  // songMeta — top country and store per song, computed from filteredRows
   const songMeta = useMemo<Record<string, { country: string; store: string }>>(() => {
     if (groupBy !== 'song') return {}
-    // Not easily available without raw rows — return empty for now
-    // (only used for display hints, not for totals)
-    return {}
-  }, [groupBy])
+    // For each song, find the country and store with the highest earnings
+    const map: Record<string, {
+      countries: Record<string, number>
+      stores:    Record<string, number>
+    }> = {}
+    for (const r of filteredRows) {
+      const song = r.song_title || 'Unknown'
+      if (!map[song]) map[song] = { countries: {}, stores: {} }
+      const earn = Number(r.earnings_usd) || 0
+      map[song].countries[r.country] = (map[song].countries[r.country] ?? 0) + earn
+      map[song].stores[r.store]      = (map[song].stores[r.store]      ?? 0) + earn
+    }
+    const result: Record<string, { country: string; store: string }> = {}
+    for (const [song, data] of Object.entries(map)) {
+      const topCountry = Object.entries(data.countries).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+      const topStore   = Object.entries(data.stores).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+      result[song] = { country: topCountry, store: topStore }
+    }
+    return result
+  }, [groupBy, filteredRows])
 
   // ── Download raw rows for export only ────────────────────
   const fetchRawRows = async (filterByArtist?: string): Promise<RoyaltyRecord[]> => {
