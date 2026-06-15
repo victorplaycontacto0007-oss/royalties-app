@@ -739,7 +739,7 @@ export async function detectAvailablePeriods(file: File): Promise<PeriodDetectio
 // ============================================================
 // Delimited (CSV, TSV, TXT, and anything else)
 // ============================================================
-async function parseDelimited(file: File): Promise<RoyaltyRow[]> {
+async function parseDelimited(file: File, selectedRawPeriods?: string[]): Promise<RoyaltyRow[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = (e) => {
@@ -756,6 +756,11 @@ async function parseDelimited(file: File): Promise<RoyaltyRow[]> {
       if (tabCount   === max) delimiter = '\t'
       else if (pipeCount  === max) delimiter = '|'
       else if (semiCount  === max) delimiter = ';'
+
+      // Build normalized set of selected periods (if user chose specific ones)
+      const selectedNormalized = selectedRawPeriods && selectedRawPeriods.length > 0
+        ? new Set(selectedRawPeriods.map(p => normalizeSalePeriod(p)))
+        : null
 
       Papa.parse(text, {
         delimiter,
@@ -775,13 +780,17 @@ async function parseDelimited(file: File): Promise<RoyaltyRow[]> {
               console.log('[Parser] colMap:', colMap)
             }
 
-            const parsed = rows
+            let parsed = rows
               .slice(headerIdx + 1)
               .map(row => parseRow(row, colMap))
               .filter((r): r is RoyaltyRow => r !== null)
-              .slice(0, MAX_PARSED_ROWS)
 
-            resolve(parsed)
+            // Apply period filter if user selected specific periods
+            if (selectedNormalized) {
+              parsed = parsed.filter(r => selectedNormalized.has(r.sale_period))
+            }
+
+            resolve(parsed.slice(0, MAX_PARSED_ROWS))
           } catch (err) { reject(err) }
         },
         error: reject,
@@ -1245,20 +1254,19 @@ export async function parseDistroKidFileWithSummary(
 
     rows = await parseExcel(file, reportPeriod ?? undefined, selectedRawPeriods)
   } else {
-    rows = await parseDelimited(file)
+    rows = await parseDelimited(file, selectedRawPeriods)
     reportPeriod = detectReportPeriod(file.name)
   }
 
   const truncated = rows.length >= MAX_PARSED_ROWS
   const detailRowsTotal = rows.reduce((sum, r) => sum + r.earnings_usd, 0)
 
-  // ── Period breakdown for MILL reports ──────────────────────────────────────
-  // We need to also parse ALL rows (unfiltered) to build the excluded list.
-  // We reuse the already-filtered `rows` for the "included" side, and scan
-  // the file again only if a period filter was active.
+  // ── Period breakdown — shown in upload summary ─────────────────────────────
+  // Calculate whenever a period filter was active (MILL auto-filter OR user selection)
+  const hasFilter = !!reportPeriod || (selectedRawPeriods && selectedRawPeriods.length > 0)
   let periodBreakdown: ReportSummary['periodBreakdown'] = undefined
 
-  if (reportPeriod) {
+  if (hasFilter) {
     // Build included periods map from the filtered rows
     const includedMap: Record<string, { rows: number; earnings: number; streams: number }> = {}
     for (const r of rows) {
@@ -1289,9 +1297,19 @@ export async function parseDistroKidFileWithSummary(
 
     const excludedSet = new Set<string>()
     for (const p of allRawPeriods) {
-      const isIncluded = reportPeriod.length === 7
-        ? p === reportPeriod
-        : p.startsWith(reportPeriod)
+      let isIncluded: boolean
+      if (selectedRawPeriods && selectedRawPeriods.length > 0) {
+        // User explicitly chose periods — use normalized comparison
+        const selNorm = new Set(selectedRawPeriods.map(s => normalizeSalePeriod(s)))
+        isIncluded = selNorm.has(p)
+      } else if (reportPeriod) {
+        // MILL auto-filter
+        isIncluded = reportPeriod.length === 7
+          ? p === reportPeriod
+          : p.startsWith(reportPeriod)
+      } else {
+        isIncluded = true
+      }
       if (!isIncluded) excludedSet.add(p)
     }
 
