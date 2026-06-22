@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
 const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID ?? 'sb'
-// En localhost siempre usar sandbox para evitar bloqueo de PayPal Live
+// En localhost usar sandbox automáticamente para evitar bloqueo de PayPal Live
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
 const PAYPAL_SANDBOX_ID = import.meta.env.VITE_PAYPAL_SANDBOX_ID ?? 'sb'
 const EFFECTIVE_PAYPAL_ID = IS_LOCAL ? PAYPAL_SANDBOX_ID : PAYPAL_CLIENT_ID
