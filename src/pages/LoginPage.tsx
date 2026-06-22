@@ -11,6 +11,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
 const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID ?? 'sb'
+// En localhost siempre usar sandbox para evitar bloqueo de PayPal Live
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+const PAYPAL_SANDBOX_ID = import.meta.env.VITE_PAYPAL_SANDBOX_ID ?? 'sb'
+const EFFECTIVE_PAYPAL_ID = IS_LOCAL ? PAYPAL_SANDBOX_ID : PAYPAL_CLIENT_ID
 
 const PLANS = [
   { id: 'daily',     label: 'Diario',     price: 3,  days: 1,   icon: <Zap className="w-4 h-4" />,      color: 'text-yellow-400' },
@@ -82,35 +86,55 @@ export default function LoginPage() {
   useEffect(() => {
     if (step !== 'pay') return
     const existing = document.getElementById('paypal-sdk-login')
-    if (existing) { setPaypalReady(true); return }
+    if (existing) {
+      // Script already in DOM — poll until paypal is available
+      const poll = setInterval(() => {
+        if ((window as any).paypal) { setPaypalReady(true); clearInterval(poll) }
+      }, 100)
+      return () => clearInterval(poll)
+    }
     const script = document.createElement('script')
     script.id  = 'paypal-sdk-login'
-    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&currency=USD&components=buttons`
+    script.src = `https://www.paypal.com/sdk/js?client-id=${EFFECTIVE_PAYPAL_ID}&currency=USD&components=buttons`
     script.onload = () => setPaypalReady(true)
+    script.onerror = () => setSubError('No se pudo cargar el SDK de PayPal. Verifica tu conexión.')
     document.body.appendChild(script)
   }, [step])
 
-  // Render PayPal button
+  // Render PayPal button — small delay to ensure DOM is ready
   useEffect(() => {
     if (!paypalReady || !(window as any).paypal || step !== 'pay') return
-    const container = document.getElementById('paypal-btn-login')
-    if (!container) return
-    container.innerHTML = ''
-    const plan = PLANS.find(p => p.id === selectedPlan)!
-    ;(window as any).paypal.Buttons({
-      style: { layout:'vertical', color:'gold', shape:'pill', label:'pay', height:44 },
-      createOrder: (_d: any, actions: any) => actions.order.create({
-        purchase_units: [{ amount: { value: plan.price.toFixed(2), currency_code:'USD' },
-          description: `Royalties App — ${plan.label}` }],
-      }),
-      onApprove: async (_d: any, actions: any) => {
-        setProcessing(true); setSubError('')
-        try { const order = await actions.order.capture(); await createUserAndSubscribe(order.id) }
-        catch (err: any) { setSubError(err.message ?? 'Error al procesar el pago.') }
-        finally { setProcessing(false) }
-      },
-      onError: () => setSubError('Error con PayPal. Intenta de nuevo.'),
-    }).render('#paypal-btn-login')
+    // Wait for React to render the container div
+    const timer = setTimeout(() => {
+      const container = document.getElementById('paypal-btn-login')
+      if (!container) {
+        setSubError('No se pudo cargar PayPal. Recarga la página.')
+        return
+      }
+      container.innerHTML = ''
+      const plan = PLANS.find(p => p.id === selectedPlan)!
+      ;(window as any).paypal.Buttons({
+        style: { layout:'vertical', color:'gold', shape:'pill', label:'pay', height:44 },
+        createOrder: (_d: any, actions: any) => actions.order.create({
+          purchase_units: [{ amount: { value: plan.price.toFixed(2), currency_code:'USD' },
+            description: `Royalties App — ${plan.label}` }],
+        }),
+        onApprove: async (_d: any, actions: any) => {
+          setProcessing(true); setSubError('')
+          try { const order = await actions.order.capture(); await createUserAndSubscribe(order.id) }
+          catch (err: any) { setSubError(err.message ?? 'Error al procesar el pago.') }
+          finally { setProcessing(false) }
+        },
+        onError: (err: any) => {
+          console.error('PayPal error:', err)
+          setSubError('Error con PayPal. Verifica tu cuenta o intenta de nuevo.')
+        },
+      }).render('#paypal-btn-login').catch((err: any) => {
+        console.error('PayPal render error:', err)
+        setSubError('No se pudo inicializar PayPal. Intenta de nuevo.')
+      })
+    }, 300)
+    return () => clearTimeout(timer)
   }, [paypalReady, step, selectedPlan])
 
   // Step 2: PayPal approved → create account → activate subscription → login

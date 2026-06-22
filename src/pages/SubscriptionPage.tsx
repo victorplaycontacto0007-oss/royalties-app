@@ -13,6 +13,9 @@ const db = supabase as any
 
 // ── PayPal client ID (replace with your own) ──────────────────────────────
 const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID ?? 'sb'
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+const PAYPAL_SANDBOX_ID = import.meta.env.VITE_PAYPAL_SANDBOX_ID ?? 'sb'
+const EFFECTIVE_PAYPAL_ID = IS_LOCAL ? PAYPAL_SANDBOX_ID : PAYPAL_CLIENT_ID
 
 export interface Plan {
   id: 'daily' | 'monthly' | 'quarterly' | 'annual'
@@ -99,7 +102,7 @@ export default function SubscriptionPage() {
     if (document.getElementById('paypal-sdk')) { setPaypalReady(true); return }
     const script = document.createElement('script')
     script.id = 'paypal-sdk'
-    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&currency=USD&components=buttons`
+    script.src = `https://www.paypal.com/sdk/js?client-id=${EFFECTIVE_PAYPAL_ID}&currency=USD&components=buttons`
     script.onload = () => setPaypalReady(true)
     document.body.appendChild(script)
   }, [])
