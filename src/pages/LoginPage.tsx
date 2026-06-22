@@ -362,14 +362,15 @@ export default function LoginPage() {
               </motion.div>
             )}
 
-            {/* STEP 2: PayPal */}
+            {/* STEP 2: PayPal + Bold */}
             {step === 'pay' && (
               <motion.div key="pay" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}}>
-                <button onClick={()=>setStep('form')} className="text-white/40 hover:text-white/70 text-xs mb-4 flex items-center gap-1">← Volver</button>
-                <h2 className="text-xl font-bold text-white mb-1">Pagar con PayPal</h2>
-                <p className="text-white/50 text-xs mb-4">Se creará tu cuenta automáticamente tras el pago</p>
+                <button onClick={()=>setStep('form')} className="text-white/40 hover:text-white/70 text-xs mb-3 flex items-center gap-1">← Volver</button>
+                <h2 className="text-xl font-bold text-white mb-1">Elige cómo pagar</h2>
+                <p className="text-white/50 text-xs mb-3">Tu cuenta se crea automáticamente tras el pago</p>
 
-                <div className="rounded-xl p-3 mb-4 border border-white/10" style={{background:'rgba(255,255,255,0.06)'}}>
+                {/* Resumen */}
+                <div className="rounded-xl p-3 mb-3 border border-white/10" style={{background:'rgba(255,255,255,0.06)'}}>
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-white/60 text-sm flex items-center gap-1.5"><span className={plan.color}>{plan.icon}</span>{plan.label}</span>
                     <span className="text-white font-bold">${plan.price} USD</span>
@@ -377,21 +378,75 @@ export default function LoginPage() {
                   <p className="text-white/40 text-xs">{regEmail}</p>
                 </div>
 
-                {processing ? (
-                  <div className="flex flex-col items-center gap-2 py-6">
-                    <Loader2 className="w-8 h-8 text-primary animate-spin"/>
-                    <p className="text-white/60 text-sm">Creando cuenta y activando suscripción...</p>
-                  </div>
-                ) : !paypalReady ? (
-                  <div className="flex items-center justify-center py-6"><Loader2 className="w-6 h-6 text-white/40 animate-spin"/></div>
-                ) : (
-                  <div id="paypal-btn-login"/>
-                )}
+                {/* PayPal */}
+                <div className="rounded-xl border border-white/10 p-3 mb-3" style={{background:'rgba(255,255,255,0.04)'}}>
+                  <p className="text-white/70 text-xs font-semibold mb-2 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-yellow-400"/> Pagar con PayPal
+                  </p>
+                  {processing ? (
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <Loader2 className="w-7 h-7 text-primary animate-spin"/>
+                      <p className="text-white/60 text-xs">Creando cuenta y activando suscripción...</p>
+                    </div>
+                  ) : !paypalReady ? (
+                    <div className="flex items-center justify-center py-4"><Loader2 className="w-5 h-5 text-white/40 animate-spin"/></div>
+                  ) : (
+                    <div id="paypal-btn-login"/>
+                  )}
+                  {subError && <p className="mt-2 text-red-300 text-xs text-center bg-red-500/10 border border-red-500/20 rounded-lg px-2 py-1.5">{subError}</p>}
+                </div>
 
-                {subError && <p className="mt-3 text-red-300 text-xs text-center bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{subError}</p>}
-                <p className="text-white/20 text-[10px] text-center mt-3 flex items-center justify-center gap-1">
-                  <ShieldCheck className="w-3 h-3"/> Pago seguro vía PayPal
-                </p>
+                {/* Divider */}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex-1 h-px bg-white/10"/>
+                  <span className="text-white/30 text-xs">o también</span>
+                  <div className="flex-1 h-px bg-white/10"/>
+                </div>
+
+                {/* Bold */}
+                <div className="rounded-xl border border-[#00C8A0]/30 p-4 mb-2"
+                  style={{background:'linear-gradient(135deg,rgba(0,200,160,0.08),rgba(0,160,200,0.06))'}}>
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm text-white flex-shrink-0"
+                      style={{background:'linear-gradient(135deg,#00C8A0,#0099CC)'}}>B</div>
+                    <div>
+                      <p className="text-white text-sm font-semibold">Paga de forma segura con Bold</p>
+                      <p className="text-white/50 text-[10px]">Tarjetas, PSE y más métodos disponibles</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1 mb-3">
+                    {['Tenga fondos disponibles','No esté bloqueada ni restringida','Habilitada para compras internacionales','Cupo suficiente para completar la compra'].map(txt => (
+                      <div key={txt} className="flex items-start gap-1.5">
+                        <span className="text-[#00C8A0] text-xs flex-shrink-0">✅</span>
+                        <p className="text-white/60 text-[10px] leading-tight">Verifica que tu método de pago: {txt}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <a href="https://checkout.bold.co/payment/LNK_VJ98U4N2KZ" target="_blank" rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-white text-sm mb-3 transition-all hover:opacity-90 active:scale-[0.98]"
+                    style={{background:'linear-gradient(135deg,#00C8A0,#0099CC)',boxShadow:'0 4px 16px rgba(0,200,160,0.3)'}}>
+                    <span className="font-black text-base">B</span> Pagar con Bold
+                  </a>
+                  <div className="rounded-lg p-2.5 border border-white/10" style={{background:'rgba(0,0,0,0.25)'}}>
+                    <p className="text-white/70 text-[10px] font-semibold mb-1.5">Después de pagar, envía por WhatsApp:</p>
+                    {['📸 Captura de la transacción','📧 Tu correo electrónico','🔑 La contraseña que deseas asignar'].map(i => (
+                      <p key={i} className="text-white/50 text-[10px] mb-0.5">{i}</p>
+                    ))}
+                    <a href="https://wa.me/573026021232?text=Hola%2C+realic%C3%A9+un+pago+con+Bold+y+adjunto+mi+comprobante."
+                      target="_blank" rel="noopener noreferrer"
+                      className="mt-2 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-white text-xs font-semibold hover:opacity-90 transition-all"
+                      style={{background:'#25D366'}}>
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                      </svg>
+                      Enviar comprobante · +57 302 602 1232
+                    </a>
+                    <p className="text-[#00C8A0] text-[10px] text-center mt-2 font-medium">
+                      Tu acceso será activado una vez se confirme el pago.
+                    </p>
+                  </div>
+                </div>
+
               </motion.div>
             )}
 
