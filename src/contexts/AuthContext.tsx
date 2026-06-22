@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { Profile } from '../types/database'
+import type { Profile, Subscription } from '../types/database'
 import { INACTIVITY_TIMEOUT_MS } from '../lib/utils'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -11,19 +11,23 @@ interface AuthContextType {
   user: User | null
   session: Session | null
   profile: Profile | null
+  subscription: Subscription | null
+  hasActiveSubscription: boolean
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
+  refreshSubscription: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser]               = useState<User | null>(null)
+  const [session, setSession]         = useState<Session | null>(null)
+  const [profile, setProfile]         = useState<Profile | null>(null)
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
+  const [loading, setLoading]         = useState(true)
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const resetInactivityTimer = () => {
@@ -41,8 +45,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .single()
       if (error) {
-        console.error('Error fetching profile:', error)
-        // If profile doesn't exist yet, create it
         if (error.code === 'PGRST116') {
           const { data: userData } = await supabase.auth.getUser()
           if (userData.user) {
@@ -65,31 +67,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const fetchSubscription = async (userId: string) => {
+    try {
+      const { data } = await db
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .gt('expires_at', new Date().toISOString())
+        .order('expires_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      setSubscription(data as Subscription | null)
+    } catch (e) {
+      console.error('fetchSubscription exception:', e)
+      setSubscription(null)
+    }
+  }
+
+  const refreshSubscription = async () => {
+    if (user) await fetchSubscription(user.id)
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
-        fetchProfile(session.user.id).finally(() => setLoading(false))
+        Promise.all([
+          fetchProfile(session.user.id),
+          fetchSubscription(session.user.id),
+        ]).finally(() => setLoading(false))
       } else {
         setLoading(false)
       }
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
-        fetchProfile(session.user.id).finally(() => setLoading(false))
+        Promise.all([
+          fetchProfile(session.user.id),
+          fetchSubscription(session.user.id),
+        ]).finally(() => setLoading(false))
         resetInactivityTimer()
       } else {
         setProfile(null)
+        setSubscription(null)
         if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
         setLoading(false)
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => authSub.unsubscribe()
   }, [])
 
   useEffect(() => {
@@ -119,8 +150,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error
   }
 
+  const hasActiveSubscription = !!subscription
+
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signIn, signOut, resetPassword }}>
+    <AuthContext.Provider value={{
+      user, session, profile, subscription, hasActiveSubscription,
+      loading, signIn, signOut, resetPassword, refreshSubscription,
+    }}>
       {children}
     </AuthContext.Provider>
   )

@@ -2,10 +2,11 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
   LayoutDashboard, Upload, FileText, LogOut,
-  Music2, Shield, FileSignature, ChevronRight
+  Music2, Shield, FileSignature, ChevronRight, User, Crown,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { motion } from 'framer-motion'
+import { differenceInDays } from 'date-fns'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard'     },
@@ -15,7 +16,7 @@ const navItems = [
 ]
 
 export default function Layout() {
-  const { profile, signOut } = useAuth()
+  const { profile, subscription, signOut } = useAuth()
   const navigate  = useNavigate()
   const location  = useLocation()
 
@@ -23,6 +24,12 @@ export default function Layout() {
     await signOut()
     navigate('/login')
   }
+
+  const daysLeft = subscription
+    ? Math.max(0, differenceInDays(new Date(subscription.expires_at), new Date()))
+    : null
+
+  const isExpiringSoon = daysLeft !== null && daysLeft <= 3
 
   return (
     <div className="flex h-screen bg-white overflow-hidden">
@@ -80,9 +87,33 @@ export default function Layout() {
           )}
         </nav>
 
+        {/* Subscription badge */}
+        {daysLeft !== null && (
+          <div className="px-3 pb-2">
+            <button
+              onClick={() => navigate('/profile')}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium transition-all',
+                isExpiringSoon
+                  ? 'bg-warning/10 text-warning hover:bg-warning/15'
+                  : 'bg-primary/8 text-primary hover:bg-primary/12'
+              )}>
+              <Crown className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="flex-1 text-left">
+                {daysLeft === 0 ? 'Vence hoy' : `${daysLeft} día${daysLeft !== 1 ? 's' : ''} restante${daysLeft !== 1 ? 's' : ''}`}
+              </span>
+              <ChevronRight className="w-3 h-3 opacity-60" />
+            </button>
+          </div>
+        )}
+
         {/* User footer */}
         <div className="px-3 py-4 border-t border-border">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-surface-2 mb-2">
+          <NavLink to="/profile"
+            className={({ isActive }) => cn(
+              'flex items-center gap-3 px-3 py-2 rounded-xl mb-2 transition-all',
+              isActive ? 'bg-primary-light' : 'bg-surface-2 hover:bg-surface-3'
+            )}>
             <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
               <span className="text-primary text-xs font-bold">
                 {profile?.full_name?.[0] ?? profile?.email?.[0]?.toUpperCase() ?? 'U'}
@@ -94,7 +125,8 @@ export default function Layout() {
               </p>
               <p className="text-text-muted text-xs truncate">{profile?.email}</p>
             </div>
-          </div>
+            <User className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+          </NavLink>
           <button onClick={handleSignOut}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-error hover:bg-error/5 transition-all duration-150">
             <LogOut className="w-4 h-4" />

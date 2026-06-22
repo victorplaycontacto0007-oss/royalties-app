@@ -118,6 +118,22 @@ export type Report = Database['public']['Tables']['reports']['Row']
 export type RoyaltyRecord = Database['public']['Tables']['royalty_records']['Row']
 export type ActivityLog = Database['public']['Tables']['activity_logs']['Row']
 
+// Subscription
+export type SubscriptionPlan = 'daily' | 'monthly' | 'quarterly' | 'annual'
+export type SubscriptionStatus = 'active' | 'expired' | 'cancelled'
+
+export interface Subscription {
+  id: string
+  user_id: string
+  plan: SubscriptionPlan
+  status: SubscriptionStatus
+  started_at: string
+  expires_at: string
+  paypal_order_id: string | null
+  amount_usd: number
+  created_at: string
+}
+
 // Splits module
 export interface Contract {
   id: string

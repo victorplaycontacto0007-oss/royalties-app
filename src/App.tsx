@@ -8,6 +8,9 @@ import ReportsPage from './pages/ReportsPage'
 import ReportDetailPage from './pages/ReportDetailPage'
 import AdminPage from './pages/AdminPage'
 import ContractsPage from './pages/ContractsPage'
+import SubscriptionPage from './pages/SubscriptionPage'
+import RenewalPage from './pages/RenewalPage'
+import ProfilePage from './pages/ProfilePage'
 import Layout from './components/Layout'
 
 const Spinner = () => (
@@ -17,14 +20,10 @@ const Spinner = () => (
 )
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
-  const { user, profile, loading } = useAuth()
+  const { user, profile, subscription, loading } = useAuth()
 
   if (loading) return <Spinner />
-
-  // Not logged in
   if (!user) return <Navigate to="/login" replace />
-
-  // Logged in but profile still loading — show spinner instead of redirecting
   if (!profile) return <Spinner />
 
   if (!profile.is_active) return (
@@ -32,6 +31,12 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
       Tu cuenta está desactivada. Contacta al administrador.
     </div>
   )
+
+  // Admins bypass subscription check
+  if (profile.role !== 'admin') {
+    const hasActive = !!subscription && new Date(subscription.expires_at) > new Date()
+    if (!hasActive) return <RenewalPage />
+  }
 
   if (adminOnly && profile.role !== 'admin') return <Navigate to="/dashboard" replace />
 
@@ -49,16 +54,21 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+        {/* Public */}
+        <Route path="/login"          element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/subscription"   element={<SubscriptionPage />} />
+        <Route path="/"               element={<Navigate to="/dashboard" replace />} />
+
+        {/* Protected */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/upload" element={<UploadPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/upload"    element={<UploadPage />} />
+          <Route path="/reports"   element={<ReportsPage />} />
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/contracts" element={<ContractsPage />} />
-          <Route path="/admin" element={
+          <Route path="/profile"   element={<ProfilePage />} />
+          <Route path="/admin"     element={
             <ProtectedRoute adminOnly>
               <AdminPage />
             </ProtectedRoute>
