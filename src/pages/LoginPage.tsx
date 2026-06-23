@@ -151,13 +151,28 @@ export default function LoginPage() {
     const userId = signUpData.user?.id
     if (!userId) throw new Error('No se pudo crear el usuario.')
 
-    // 2. Wait briefly for the DB trigger to create the profile
-    await new Promise(r => setTimeout(r, 1200))
+    // 2. Wait for the DB trigger to create the profile
+    await new Promise(r => setTimeout(r, 1500))
 
-    // 3. Create subscription
+    // 3. Create subscription (use userId directly — no session needed yet)
     const now = new Date()
     const expiresAt = new Date(now)
     expiresAt.setDate(expiresAt.getDate() + plan.days)
+
+    // Insert using the anon client — RLS allows insert with user_id = auth.uid()
+    // We need to sign in first so the session is valid for the insert
+    const { error: signInErr } = await supabase.auth.signInWithPassword({
+      email: regEmail.trim(), password: regPwd,
+    })
+    // If email confirmation is required, signIn may fail — we still try to insert
+    // the subscription using the service role or handle gracefully
+    if (signInErr) {
+      // Email confirmation required — account created but can't auto-login
+      // Show a friendly message instead of an error
+      setStep('done')
+      setTimeout(() => navigate('/login', { replace: true }), 3000)
+      return
+    }
 
     const { error: subErr } = await db.from('subscriptions').insert({
       user_id:         userId,
@@ -169,12 +184,6 @@ export default function LoginPage() {
       amount_usd:      plan.price,
     })
     if (subErr) throw new Error(`Cuenta creada pero error en suscripción: ${subErr.message}`)
-
-    // 4. Sign in automatically
-    const { error: signInErr } = await supabase.auth.signInWithPassword({
-      email: regEmail.trim(), password: regPwd,
-    })
-    if (signInErr) throw new Error(signInErr.message)
 
     await refreshSubscription()
     setStep('done')

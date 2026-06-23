@@ -25,8 +25,12 @@ CREATE POLICY "Users can view own subscriptions"
 
 CREATE POLICY "Users can insert own subscriptions"
   ON public.subscriptions FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid() OR public.is_admin());
 
 CREATE POLICY "Admins can update subscriptions"
   ON public.subscriptions FOR UPDATE
+  USING (public.is_admin());
+
+CREATE POLICY "Admins can delete subscriptions"
+  ON public.subscriptions FOR DELETE
   USING (public.is_admin());
