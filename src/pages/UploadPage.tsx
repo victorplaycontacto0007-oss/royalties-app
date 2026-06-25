@@ -476,6 +476,24 @@ export default function UploadPage() {
                     <p className="text-text-muted text-xs">No se encontró un total oficial. Se usa la suma de las filas de detalle.</p>
                   </div>
                 )}
+
+                {/* Processing log */}
+                {summary.processingLog && summary.processingLog.length > 0 && (
+                  <details className="rounded-xl border border-border overflow-hidden text-xs font-mono">
+                    <summary className="bg-surface-2 px-3 py-2 cursor-pointer text-text-secondary font-semibold flex items-center gap-2">
+                      🔍 Log de procesamiento ({summary.processingLog.length} entradas)
+                    </summary>
+                    <div className="px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto">
+                      {summary.processingLog.map((line, i) => (
+                        <p key={i} className={`text-[10px] leading-relaxed ${
+                          line.includes('[ERROR]') ? 'text-error' :
+                          line.includes('[WARN]')  ? 'text-warning' :
+                          'text-text-muted'
+                        }`}>{line}</p>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
             )}
           </motion.div>

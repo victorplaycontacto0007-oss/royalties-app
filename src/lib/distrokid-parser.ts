@@ -1,5 +1,8 @@
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
+import {
+  buildColumnMap, parseNumericValue, detectCurrencyFromRows,
+} from './royalty-normalizer'
 
 export interface RoyaltyRow {
   sale_period: string
@@ -279,13 +282,39 @@ function findHeaderRow(rows: (string | number)[][]): number {
 // ============================================================
 function mapHeaders(headerRow: (string | number)[]): Record<keyof RoyaltyRow, number | undefined> & { _trackArtistIdx?: number } {
   const map: Partial<Record<keyof RoyaltyRow, number>> & { _trackArtistIdx?: number } = {}
+  const headers = headerRow.map(h => (h ?? '').toString())
 
-  // Pass 0: priority overrides — these exact headers always win
+  // ── Use the intelligent normalizer for earnings_usd ──────────────────────
+  // This ensures proper hierarchy: net_total > currency_net > royalty > amount
+  // and ignores rate columns like "royalty basis", "tax rate", etc.
+  const normResult = buildColumnMap(headers)
+  const normMap = normResult.columnMap
+
+  // Map earnings_usd from normalizer (uses full hierarchy)
+  if (normMap.net_total !== null) {
+    map.earnings_usd = normMap.net_total
+  }
+  // Map other fields from normalizer
+  if (normMap.quantity !== null)    map.quantity    = normMap.quantity
+  if (normMap.store !== null)       map.store       = normMap.store
+  if (normMap.country !== null)     map.country     = normMap.country
+  if (normMap.artist !== null)      map.artist_name = normMap.artist
+  if (normMap.track !== null)       map.song_title  = normMap.track
+  if (normMap.album !== null)       map.album_name  = normMap.album
+  if (normMap.sale_period !== null) map.sale_period = normMap.sale_period
+
+  // Log for dev
+  if (import.meta.env.DEV) {
+    console.group('[Normalizer] Column mapping')
+    normResult.logs.forEach(l => console.log(`  [${l.level}] ${l.message}`))
+    console.groupEnd()
+  }
+
+  // Pass 0: priority overrides — these exact headers always win over normalizer
   const PRIORITY_EXACT: Partial<Record<keyof RoyaltyRow, string[]>> = {
     earnings_usd: ['collaborator share', 'final royalty', 'earnings (usd)', 'royalty amount (usd)', 'royalty amount'],
     quantity:     ['units of sold', 'units sold', 'quantity'],
     artist_name:  ['track artists', 'artist name'],
-    // TuneOrchard: "Track" column is the song title, "Track Artists" is the artist
     song_title:   ['track title', 'track', 'song title'],
     store:        ['store name', 'store'],
     country:      ['sales region', 'country of sale', 'country'],
@@ -295,7 +324,6 @@ function mapHeaders(headerRow: (string | number)[]): Record<keyof RoyaltyRow, nu
     for (const pk of priorityKeys) {
       const idx = headerRow.findIndex(h => (h ?? '').toString().toLowerCase().trim() === pk)
       if (idx !== -1) {
-        // Special case: "track" alone should NOT map to the "track artists" column
         if (field === 'song_title' && pk === 'track') {
           const colName = (headerRow[idx] ?? '').toString().toLowerCase().trim()
           if (colName === 'track artists') continue
@@ -391,13 +419,13 @@ function parseRow(
   }
 
   const rawEarnings = get('earnings_usd')
-    .replace(/[$€£¥,\s]/g, '')
-    .replace(/\(([^)]+)\)/, '-$1')
+  const rawQty      = get('quantity')
 
-  const rawQty = get('quantity').replace(/[,\s]/g, '')
-
-  const earnings = parseFloat(rawEarnings)
-  const quantity = parseInt(rawQty, 10)
+  const earnings = parseNumericValue(rawEarnings)
+  const quantity = (() => {
+    const n = parseNumericValue(rawQty)
+    return isNaN(n) ? NaN : Math.round(n)
+  })()
 
   if (isNaN(earnings) && isNaN(quantity)) return null
 
@@ -441,14 +469,13 @@ function parseRowMixed(
     if (idx === undefined) return ''
     return (textRow[idx] ?? '').toString().trim()
   }
-  // Numeric fields come from the raw row (raw:true) for full precision
+  // Numeric fields: prefer raw number, fall back to robust parseNumericValue
   const getNum = (field: keyof RoyaltyRow): number => {
     const idx = colMap[field]
     if (idx === undefined) return NaN
     const v = numRow[idx]
     if (typeof v === 'number') return v
-    const parsed = parseFloat(String(v ?? '').replace(/[$€£¥,\s]/g, '').replace(/\(([^)]+)\)/, '-$1'))
-    return parsed
+    return parseNumericValue(String(v ?? ''))
   }
 
   const earnings = getNum('earnings_usd')
@@ -457,7 +484,8 @@ function parseRowMixed(
     if (idx === undefined) return NaN
     const v = numRow[idx]
     if (typeof v === 'number') return Math.round(v)
-    return parseInt(String(v ?? '').replace(/[,\s]/g, ''), 10)
+    const n = parseNumericValue(String(v ?? ''))
+    return isNaN(n) ? NaN : Math.round(n)
   })()
 
   if (isNaN(earnings) && isNaN(quantity)) return null
@@ -692,13 +720,8 @@ export async function detectAvailablePeriods(file: File): Promise<PeriodDetectio
       const ws = wb.Sheets[sheetName]
       const t = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '', raw: false }) as string[][]
       if (t.length > textRows.length) textRows = t
-      // Detect currency
-      for (const row of t.slice(0, 20)) {
-        for (const cell of row) {
-          const v = (cell ?? '').toString().trim().toUpperCase()
-          if (['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(v)) { currency = v; break }
-        }
-      }
+      // Detect currency using normalizer (handles more currencies: COP, MXN, JPY, etc.)
+      currency = detectCurrencyFromRows(textRows) || currency
     }
   } else {
     // CSV/TSV — read as text and parse
@@ -804,7 +827,7 @@ async function parseDelimited(file: File, selectedRawPeriods?: string[]): Promis
 // ============================================================
 // Excel
 // ============================================================
-async function parseExcel(file: File, reportPeriod?: string, selectedRawPeriods?: string[]): Promise<RoyaltyRow[]> {
+async function parseExcel(file: File, reportPeriod?: string, selectedRawPeriods?: string[]): Promise<{ rows: RoyaltyRow[]; normLogs: string[] }> {
   const buffer = await file.arrayBuffer()
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
 
@@ -825,6 +848,8 @@ async function parseExcel(file: File, reportPeriod?: string, selectedRawPeriods?
 
   const headerIdx = findHeaderRow(textRows)
   const colMap    = mapHeaders(textRows[headerIdx])
+  // Capture normalizer logs for the processing log panel
+  const normLogs = buildColumnMap(textRows[headerIdx].map(h => (h ?? '').toString())).logs
 
   // Detect the report period if not supplied
   const metaRows = textRows.slice(0, headerIdx)
@@ -914,7 +939,10 @@ async function parseExcel(file: File, reportPeriod?: string, selectedRawPeriods?
     console.groupEnd()
   }
 
-  return parsed
+  return {
+    rows: parsed,
+    normLogs: normLogs.map(l => `[${l.level.toUpperCase()}] ${l.message}`),
+  }
 }
 
 
@@ -1134,23 +1162,16 @@ export interface ReportSummary {
   differencePercent: number
   source: string
   status: 'Official total found' | 'No official total — using sum of detail rows'
-  /** How many rows were parsed from the file */
   parsedRows: number
-  /** How many rows were saved to the database */
   savedRows?: number
-  /** True if the file exceeded MAX_PARSED_ROWS and was truncated */
   truncated?: boolean
-  /** The detected report period used to filter rows (e.g. "2026-03"), or null if not detected */
   reportPeriod?: string | null
-  /** Period breakdown — only populated for MILL reports with a filter active */
+  /** Processing log from the intelligent column detector */
+  processingLog?: string[]
   periodBreakdown?: {
-    /** Periods that matched the filter and were included */
     included: Array<{ period: string; rows: number; earnings: number; streams: number }>
-    /** Periods that were excluded by the filter */
     excluded: string[]
-    /** Total streams in included rows */
     totalStreams: number
-    /** Total earnings in included rows */
     totalEarnings: number
   }
 }
@@ -1224,6 +1245,10 @@ export async function parseDistroKidFileWithSummary(
   let officialTotalInfo: { value: number; sheet: string; cell: string; source: string } | null = null
   let currency = 'USD'
   let reportPeriod: string | null = null
+  const processingLog: string[] = []
+
+  processingLog.push(`Archivo: ${file.name}`)
+  processingLog.push(`Tipo: ${file.name.split('.').pop()?.toUpperCase() ?? 'desconocido'}`)
 
   if (['xlsx', 'xls'].includes(ext)) {
     const buffer = await file.arrayBuffer()
@@ -1232,16 +1257,13 @@ export async function parseDistroKidFileWithSummary(
     // Extract official total from metadata
     officialTotalInfo = extractOfficialTotal(wb)
 
-    // Try to detect currency
+    // Try to detect currency using normalizer
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName]
-      const textRows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '', raw: false }) as string[][]
-      for (const row of textRows.slice(0, 20)) {
-        for (const cell of row) {
-          const v = (cell ?? '').toString().trim().toUpperCase()
-          if (['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(v)) { currency = v; break }
-        }
-      }
+      const textRows2 = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '', raw: false }) as string[][]
+      const detected = detectCurrencyFromRows(textRows2)
+      if (detected !== 'USD') { currency = detected; break }
+      if (detected) currency = detected
     }
 
     // Detect report period from file name + metadata
@@ -1252,14 +1274,22 @@ export async function parseDistroKidFileWithSummary(
       : []
     reportPeriod = detectReportPeriod(file.name, metaRows)
 
-    rows = await parseExcel(file, reportPeriod ?? undefined, selectedRawPeriods)
+    rows = await parseExcel(file, reportPeriod ?? undefined, selectedRawPeriods).then(r => {
+      processingLog.push(...r.normLogs)
+      return r.rows
+    })
   } else {
     rows = await parseDelimited(file, selectedRawPeriods)
     reportPeriod = detectReportPeriod(file.name)
+    processingLog.push(`Separador detectado automáticamente`)
   }
 
-  const truncated = rows.length >= MAX_PARSED_ROWS
+  processingLog.push(`Filas procesadas: ${rows.length}`)
+  processingLog.push(`Moneda detectada: ${currency}`)
   const detailRowsTotal = rows.reduce((sum, r) => sum + r.earnings_usd, 0)
+  processingLog.push(`Total calculado: ${detailRowsTotal.toFixed(6)} ${currency}`)
+
+  const truncated = rows.length >= MAX_PARSED_ROWS
 
   // ── Period breakdown — shown in upload summary ─────────────────────────────
   // Calculate whenever a period filter was active (MILL auto-filter OR user selection)
@@ -1345,6 +1375,7 @@ export async function parseDistroKidFileWithSummary(
         truncated,
         reportPeriod,
         periodBreakdown,
+        processingLog,
       },
     }
   }
@@ -1365,6 +1396,7 @@ export async function parseDistroKidFileWithSummary(
       truncated,
       reportPeriod,
       periodBreakdown,
+      processingLog,
     },
   }
 }

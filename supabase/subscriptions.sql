@@ -19,18 +19,22 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_expires_at ON public.subscriptions(
 
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 
+-- Users can view their own; admins see all
 CREATE POLICY "Users can view own subscriptions"
   ON public.subscriptions FOR SELECT
   USING (user_id = auth.uid() OR public.is_admin());
 
+-- Users insert their own; admins can insert for anyone
 CREATE POLICY "Users can insert own subscriptions"
   ON public.subscriptions FOR INSERT
   WITH CHECK (user_id = auth.uid() OR public.is_admin());
 
+-- Only admins can update
 CREATE POLICY "Admins can update subscriptions"
   ON public.subscriptions FOR UPDATE
   USING (public.is_admin());
 
+-- Only admins can delete
 CREATE POLICY "Admins can delete subscriptions"
   ON public.subscriptions FOR DELETE
   USING (public.is_admin());

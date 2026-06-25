@@ -319,7 +319,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
       const days = customDays !== '' ? Number(customDays) : selectedPlan.days
       const now = new Date()
       const expiresAt = addDays(now, days)
-      await db.from('subscriptions').insert({
+      const { error: subErr } = await db.from('subscriptions').insert({
         user_id:    userId,
         plan,
         status:     'active',
@@ -327,6 +327,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
         expires_at: expiresAt.toISOString(),
         amount_usd: selectedPlan.price,
       })
+      if (subErr) throw new Error(`Usuario creado pero error en suscripción: ${subErr.message}`)
 
       onSuccess()
     } catch (err: unknown) {
@@ -459,12 +460,14 @@ function SubscriptionModal({ user, onClose, onSuccess }: { user: ProfileWithSub;
     e.preventDefault(); setLoading(true); setError('')
     try {
       // Cancel existing active subscriptions
-      await db.from('subscriptions').update({ status: 'cancelled' })
+      const { error: cancelErr } = await db.from('subscriptions')
+        .update({ status: 'cancelled' })
         .eq('user_id', user.id).eq('status', 'active')
+      if (cancelErr) console.warn('Cancel error (non-fatal):', cancelErr.message)
 
       // Insert new one
       const now = new Date()
-      await db.from('subscriptions').insert({
+      const { error: insErr } = await db.from('subscriptions').insert({
         user_id:    user.id,
         plan,
         status:     'active',
@@ -472,6 +475,7 @@ function SubscriptionModal({ user, onClose, onSuccess }: { user: ProfileWithSub;
         expires_at: expiresAt.toISOString(),
         amount_usd: selectedPlanInfo.price,
       })
+      if (insErr) throw new Error(`Error al crear suscripción: ${insErr.message}`)
       onSuccess()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al guardar')
@@ -479,9 +483,17 @@ function SubscriptionModal({ user, onClose, onSuccess }: { user: ProfileWithSub;
   }
 
   const handleRevoke = async () => {
-    setLoading(true)
-    await db.from('subscriptions').update({ status: 'cancelled' }).eq('user_id', user.id).eq('status', 'active')
-    onSuccess()
+    setLoading(true); setError('')
+    try {
+      const { error: err } = await db.from('subscriptions')
+        .update({ status: 'cancelled' })
+        .eq('user_id', user.id).eq('status', 'active')
+      if (err) throw new Error(err.message)
+      onSuccess()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al revocar')
+      setLoading(false)
+    }
   }
 
   return (
