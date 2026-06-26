@@ -21,13 +21,11 @@ export default function AffiliatePage() {
   const { user, profile } = useAuth()
   const { data: commissions = [], isLoading } = useAffiliateCommissions(user?.id)
 
-  // Guard — only affiliates (and admins) can access this page
-  if (profile && profile.role !== 'admin' && (profile as any).role !== 'affiliate') {
+  // Guard — page is accessible to all authenticated users (admins and regular users with referral links)
+  if (!profile) {
     return (
       <div className="p-8 text-center">
-        <p className="text-text-secondary text-sm">
-          El programa de afiliados no está disponible para esta cuenta.
-        </p>
+        <p className="text-text-secondary text-sm">Cargando...</p>
       </div>
     )
   }
