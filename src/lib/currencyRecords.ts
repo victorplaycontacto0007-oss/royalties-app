@@ -37,7 +37,8 @@ export async function saveCurrencyRecords(
     import_date:         new Date().toISOString(),
   }))
 
-  const { error } = await supabase.from('currency_records').insert(records)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).from('currency_records').insert(records)
 
   if (error) {
     console.error('[currencyRecords] Error al insertar currency_records:', error)

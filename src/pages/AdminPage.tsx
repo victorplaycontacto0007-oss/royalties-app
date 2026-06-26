@@ -7,6 +7,7 @@ import {
   Users, Plus, Pencil, Trash2, Power, Loader2,
   Shield, Activity, X, Check, Clock, Crown,
   Calendar, RefreshCw, Zap, Star, Sparkles, GitMerge,
+  Link2, Copy, ToggleLeft, ToggleRight,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Profile, Subscription, SubscriptionPlan } from '../types/database'
@@ -191,6 +192,9 @@ export default function AdminPage() {
       {/* ── REFERIDOS TAB ── */}
       {activeTab === 'referidos' && (
         <div className="space-y-6">
+          {/* Referral Links Section */}
+          <ReferralLinksSection users={users ?? []} />
+
           {showCommissionForm && (
             <div className="card">
               <h2 className="text-sm font-semibold text-text-primary mb-4">Registrar Comisión Manual</h2>
@@ -725,5 +729,198 @@ function ModalWrapper({ children, onClose, title, icon }: {
         {children}
       </motion.div>
     </motion.div>
+  )
+}
+
+// ── Referral Links Section ─────────────────────────────────────────────────
+function ReferralLinksSection({ users }: { users: ProfileWithSub[] }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const queryClient = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [affiliateId, setAffiliateId] = useState('')
+  const [customCode, setCustomCode] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const baseUrl = window.location.origin
+
+  interface ReferralLink {
+    id: string
+    affiliate_id: string
+    referral_code: string
+    is_active: boolean
+    created_at: string
+    affiliate?: { full_name: string | null; email: string }
+  }
+
+  const { data: links, isLoading } = useQuery<ReferralLink[]>({
+    queryKey: ['referral-links'],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from('referral_links')
+        .select('id, affiliate_id, referral_code, is_active, created_at, profiles!referral_links_affiliate_id_fkey(full_name, email)')
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      return (data ?? []).map((r: ReferralLink & { profiles?: { full_name: string | null; email: string } }) => ({
+        ...r,
+        affiliate: r.profiles,
+      }))
+    },
+  })
+
+  const generateCode = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  }
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!affiliateId) { setCreateError('Selecciona un afiliado'); return }
+    setCreating(true); setCreateError('')
+    try {
+      const code = customCode.trim().toUpperCase() || generateCode()
+      const { error } = await db.from('referral_links').insert({
+        affiliate_id: affiliateId,
+        referral_code: code,
+        is_active: true,
+      })
+      if (error) throw new Error(error.message)
+      setAffiliateId('')
+      setCustomCode('')
+      setShowForm(false)
+      queryClient.invalidateQueries({ queryKey: ['referral-links'] })
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : 'Error al crear link')
+    } finally { setCreating(false) }
+  }
+
+  const toggleActive = async (link: ReferralLink) => {
+    await db.from('referral_links').update({ is_active: !link.is_active }).eq('id', link.id)
+    queryClient.invalidateQueries({ queryKey: ['referral-links'] })
+  }
+
+  const deleteLink = async (id: string) => {
+    await db.from('referral_links').delete().eq('id', id)
+    queryClient.invalidateQueries({ queryKey: ['referral-links'] })
+  }
+
+  const copyLink = (code: string) => {
+    navigator.clipboard.writeText(`${baseUrl}/suscripcion?ref=${code}`)
+    setCopied(code)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Link2 className="w-4 h-4 text-text-muted" />
+          <h2 className="text-sm font-semibold text-text-primary">Links de referido</h2>
+        </div>
+        <button onClick={() => setShowForm(v => !v)} className="btn-secondary text-xs flex items-center gap-1.5 py-1.5">
+          <Plus className="w-3.5 h-3.5" /> Crear link
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="px-6 py-4 border-b border-border bg-surface-2">
+          <form onSubmit={handleCreate} className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1">Afiliado *</label>
+              <select value={affiliateId} onChange={e => setAffiliateId(e.target.value)} className="input text-sm">
+                <option value="">— Selecciona un afiliado —</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name ?? '(sin nombre)'} — {u.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1">
+                Código personalizado <span className="text-text-muted">(opcional — se genera automático)</span>
+              </label>
+              <input
+                value={customCode}
+                onChange={e => setCustomCode(e.target.value)}
+                className="input text-sm font-mono uppercase"
+                placeholder="Ej: JUAN2024"
+                maxLength={20}
+              />
+            </div>
+            {createError && (
+              <p className="text-error text-xs bg-error/10 border border-error/20 rounded-lg px-3 py-2">{createError}</p>
+            )}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowForm(false)} className="btn-secondary text-sm flex-1">Cancelar</button>
+              <button type="submit" disabled={creating} className="btn-primary text-sm flex-1 flex items-center justify-center gap-2">
+                {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Crear
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 text-primary animate-spin" /></div>
+      ) : !links || links.length === 0 ? (
+        <div className="px-6 py-8 text-center text-text-muted text-sm">
+          No hay links de referido. Crea el primero.
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {links.map(link => (
+            <div key={link.id} className="px-6 py-4 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono text-sm font-semibold text-text-primary">{link.referral_code}</span>
+                  <span className={`badge text-[10px] ${link.is_active ? 'badge-success' : 'badge-error'}`}>
+                    {link.is_active ? 'Activo' : 'Inactivo'}
+                  </span>
+                </div>
+                <p className="text-text-muted text-xs truncate">
+                  {link.affiliate?.full_name ?? '(sin nombre)'} — {link.affiliate?.email}
+                </p>
+                <p className="text-text-muted text-[10px] mt-0.5 font-mono truncate">
+                  {baseUrl}/suscripcion?ref={link.referral_code}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  onClick={() => copyLink(link.referral_code)}
+                  className="p-1.5 rounded-lg hover:bg-surface-2 text-text-muted hover:text-primary transition-colors"
+                  title="Copiar link"
+                >
+                  {copied === link.referral_code
+                    ? <Check className="w-3.5 h-3.5 text-success" />
+                    : <Copy className="w-3.5 h-3.5" />
+                  }
+                </button>
+                <button
+                  onClick={() => toggleActive(link)}
+                  className="p-1.5 rounded-lg hover:bg-surface-2 text-text-muted hover:text-primary transition-colors"
+                  title={link.is_active ? 'Desactivar' : 'Activar'}
+                >
+                  {link.is_active
+                    ? <ToggleRight className="w-4 h-4 text-success" />
+                    : <ToggleLeft className="w-4 h-4" />
+                  }
+                </button>
+                <button
+                  onClick={() => deleteLink(link.id)}
+                  className="p-1.5 rounded-lg hover:bg-error/10 text-text-muted hover:text-error transition-colors"
+                  title="Eliminar"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
