@@ -1,10 +1,16 @@
+import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAffiliateCommissions } from '../hooks/useCommissions'
 import AffiliateBalanceCard from '../components/referrals/AffiliateBalanceCard'
 import type { CommissionStatus } from '../types/referrals'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Link2, Copy, Check, AlertCircle } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { useQuery } from '@tanstack/react-query'
+import { supabase } from '../lib/supabase'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any
 
 const STATUS_COLORS: Record<CommissionStatus, string> = {
   Pendiente:  'bg-warning/10 text-warning',
@@ -20,6 +26,34 @@ const NOT_CREDITED: CommissionStatus[] = ['Pendiente', 'Rechazada', 'Cancelada']
 export default function AffiliatePage() {
   const { user, profile } = useAuth()
   const { data: commissions = [], isLoading } = useAffiliateCommissions(user?.id)
+  const [copied, setCopied] = useState(false)
+
+  // Fetch this user's referral link
+  const { data: referralLink, isLoading: linkLoading } = useQuery<{ referral_code: string } | null>({
+    queryKey: ['my-referral-link', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data } = await db
+        .from('referral_links')
+        .select('referral_code')
+        .eq('affiliate_id', user!.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      return data ?? null
+    },
+  })
+
+  const baseUrl = window.location.origin
+  const fullLink = referralLink ? `${baseUrl}/suscripcion?ref=${referralLink.referral_code}` : null
+
+  const copyLink = () => {
+    if (!fullLink) return
+    navigator.clipboard.writeText(fullLink)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   // Guard — page is accessible to all authenticated users (admins and regular users with referral links)
   if (!profile) {
@@ -38,6 +72,46 @@ export default function AffiliatePage() {
       </div>
 
       <AffiliateBalanceCard />
+
+      {/* Referral link card */}
+      <div className="card space-y-3">
+        <div className="flex items-center gap-2">
+          <Link2 className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-semibold text-text-primary">Tu link de referido</h2>
+        </div>
+
+        {linkLoading ? (
+          <div className="flex items-center gap-2 text-text-muted text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Cargando link...
+          </div>
+        ) : fullLink ? (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-surface-2 border border-border rounded-xl px-4 py-2.5 font-mono text-xs text-text-secondary truncate">
+              {fullLink}
+            </div>
+            <button
+              onClick={copyLink}
+              className="btn-secondary flex items-center gap-2 text-sm flex-shrink-0"
+            >
+              {copied
+                ? <><Check className="w-4 h-4 text-success" /> Copiado</>
+                : <><Copy className="w-4 h-4" /> Copiar</>
+              }
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-text-muted text-sm bg-surface-2 rounded-xl px-4 py-3">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>Aún no tienes un link de referido asignado. Contacta al administrador.</span>
+          </div>
+        )}
+
+        {referralLink && (
+          <p className="text-text-muted text-xs">
+            Comparte este link. Cuando alguien se suscriba a través de él, recibirás una comisión automáticamente.
+          </p>
+        )}
+      </div>
 
       {/* Commission history */}
       <div>
