@@ -60,6 +60,7 @@ export default function App() {
         <Route path="/login"          element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/subscription"   element={<SubscriptionPage />} />
+        <Route path="/suscripcion"    element={<SubscriptionPage />} />
         <Route path="/"               element={<LandingPage />} />
 
         {/* Protected */}
