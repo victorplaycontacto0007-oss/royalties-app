@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { supabase } from '../lib/supabase'
+import { saveCurrencyRecords } from '../lib/currencyRecords'
 import { useAuth } from '../contexts/AuthContext'
 import { detectAvailablePeriods, normalizeSalePeriod } from '../lib/distrokid-parser'
 import { parseFile } from '../royalty-engine'
@@ -11,6 +12,8 @@ import {
 } from 'lucide-react'
 import AuditSummary from '../components/AuditSummary'
 import DebugViewer from '../components/DebugViewer'
+import CurrencyTab from '../components/CurrencyTab'
+import { convertCurrencies, type TargetCurrency, type ConversionResult } from '../royalty-engine/CurrencyConverter'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -41,6 +44,12 @@ export default function UploadPage() {
   const [audit, setAudit]           = useState<AuditReport | null>(null)
   const [debug, setDebug]           = useState<DebugSnapshot | null>(null)
   const [isDebugOpen, setIsDebugOpen] = useState(false)
+
+  // payment-column-strategy: currency tab state
+  const [activeTab, setActiveTab]             = useState<'audit' | 'currencies'>('audit')
+  const [converting, setConverting]           = useState(false)
+  const [conversionResult, setConversionResult] = useState<ConversionResult | null>(null)
+  const [conversionError, setConversionError]   = useState<string | null>(null)
 
   const [pendingFile, setPendingFile]               = useState<File | null>(null)
   const [availablePeriods, setAvailablePeriods]     = useState<string[]>([])
@@ -162,6 +171,15 @@ export default function UploadPage() {
         error_rows: parsedAudit.errorRows,
       }).eq('id', report.id)
 
+      // 5b. Save currency records (payment-column-currency-strategy, Req 9.2, 9.3)
+      void saveCurrencyRecords(
+        report.id,
+        user.id,
+        parsedStats.provider,
+        parsedStats.paymentColumnUsed ?? '',
+        parsedStats.currencyGroups ?? [],
+      ).catch(console.error)
+
       // 6. Activity log
       await db.from('activity_logs').insert({
         user_id: user.id, action: 'report_uploaded',
@@ -187,10 +205,25 @@ export default function UploadPage() {
     }
   }
 
+  const handleConvert = async (target: TargetCurrency) => {
+    if (!stats || converting) return
+    setConverting(true)
+    setConversionError(null)
+    try {
+      const result = await convertCurrencies(stats.currencyGroups, target)
+      setConversionResult(result)
+    } catch {
+      setConversionError('Error al obtener tasas de cambio. Intenta de nuevo.')
+    } finally {
+      setConverting(false)
+    }
+  }
+
   const reset = () => {
     setStatus('idle'); setError(''); setProgress(''); setReportId('')
     setStats(null); setAudit(null); setDebug(null); setIsDebugOpen(false)
     setPendingFile(null); setAvailablePeriods([]); setSelectedPeriods(new Set()); setOfficialTotal(null)
+    setActiveTab('audit'); setConversionResult(null); setConversionError(null)
   }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -430,12 +463,34 @@ export default function UploadPage() {
             </div>
 
             {stats && audit && (
-              <AuditSummary
-                audit={audit}
-                stats={stats}
-                onViewAudit={() => setIsDebugOpen(true)}
-                onViewAnalysis={() => navigate(`/reports/${reportId}`)}
-              />
+              <>
+                {stats.currencyGroups && stats.currencyGroups.length > 0 && (
+                  <div className="flex gap-1 border-b border-border mb-2">
+                    {(['audit', 'currencies'] as const).map(tab => (
+                      <button key={tab} onClick={() => setActiveTab(tab)}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                          activeTab === tab
+                            ? 'border-primary text-primary'
+                            : 'border-transparent text-text-secondary hover:text-text-primary'
+                        }`}>
+                        {tab === 'audit' ? 'Auditoría' : (
+                          <>Monedas <span className="badge badge-primary ml-1">{stats.currencyGroups.length}</span></>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {activeTab === 'audit' && (
+                  <AuditSummary audit={audit} stats={stats}
+                    onViewAudit={() => setIsDebugOpen(true)}
+                    onViewAnalysis={() => navigate(`/reports/${reportId}`)} />
+                )}
+                {activeTab === 'currencies' && (
+                  <CurrencyTab groups={stats.currencyGroups} onConvert={handleConvert}
+                    converting={converting} conversionResult={conversionResult}
+                    conversionError={conversionError} />
+                )}
+              </>
             )}
 
             {/* Processing log */}

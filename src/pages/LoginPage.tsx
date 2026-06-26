@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import {
@@ -16,20 +16,33 @@ const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hos
 const PAYPAL_SANDBOX_ID = import.meta.env.VITE_PAYPAL_SANDBOX_ID ?? 'sb'
 const EFFECTIVE_PAYPAL_ID = IS_LOCAL ? PAYPAL_SANDBOX_ID : PAYPAL_CLIENT_ID
 
-const PLANS = [
-  { id: 'daily',     label: 'Diario',     price: 3,  days: 1,   icon: <Zap className="w-4 h-4" />,      color: 'text-yellow-400' },
-  { id: 'monthly',   label: 'Mensual',    price: 10, days: 30,  icon: <Star className="w-4 h-4" />,     color: 'text-primary',   badge: 'Popular' },
-  { id: 'quarterly', label: 'Trimestral', price: 25, days: 90,  icon: <Crown className="w-4 h-4" />,    color: 'text-cyan-400'   },
-  { id: 'annual',    label: 'Anual',      price: 75, days: 365, icon: <Sparkles className="w-4 h-4" />, color: 'text-emerald-400', badge: 'Mejor precio' },
-] as const
-type PlanId = typeof PLANS[number]['id']
+// Static visual metadata — never contains pricing
+const PLAN_VISUAL_LOGIN: Record<string, { icon: React.ReactNode; color: string; badge?: string }> = {
+  daily:     { icon: <Zap className="w-4 h-4" />,      color: 'text-yellow-400' },
+  monthly:   { icon: <Star className="w-4 h-4" />,     color: 'text-primary',    badge: 'Popular' },
+  quarterly: { icon: <Crown className="w-4 h-4" />,    color: 'text-cyan-400' },
+  annual:    { icon: <Sparkles className="w-4 h-4" />, color: 'text-emerald-400', badge: 'Mejor precio' },
+}
+
+interface DynamicPlan {
+  id: string        // slug
+  label: string
+  price: number
+  days: number
+  icon: React.ReactNode
+  color: string
+  badge?: string
+}
+type PlanId = string
 
 export default function LoginPage() {
   const { signIn, resetPassword, refreshSubscription } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   // Panel state: false=login, true=signup+plans
-  const [active,  setActive]  = useState(false)
+  // If ?signup=true in URL, open signup panel directly
+  const [active,  setActive]  = useState(() => searchParams.get('signup') === 'true')
   const [subMode, setSubMode] = useState<'login'|'forgot'>('login')
 
   // Login fields
@@ -46,6 +59,34 @@ export default function LoginPage() {
   const [regPwd,     setRegPwd]     = useState('')
   const [showRegPwd, setShowRegPwd] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('monthly')
+
+  // Dynamic plans loaded from Supabase
+  const [PLANS, setPlans] = useState<DynamicPlan[]>([])
+  const [plansLoading, setPlansLoading] = useState(true)
+
+  // Load plans from Supabase on mount
+  useEffect(() => {
+    db.from('plans')
+      .select('id,name,slug,price,duration_days,badge,display_order')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .then(({ data }: { data: Array<{id:string;name:string;slug:string;price:number;duration_days:number;badge:string|null}> | null }) => {
+        const mapped: DynamicPlan[] = (data ?? []).map(row => {
+          const visual = PLAN_VISUAL_LOGIN[row.slug] ?? PLAN_VISUAL_LOGIN['monthly']
+          return {
+            id:    row.slug,
+            label: row.name,
+            price: row.price,
+            days:  row.duration_days,
+            icon:  visual.icon,
+            color: visual.color,
+            badge: row.badge ?? visual.badge,
+          }
+        })
+        setPlans(mapped)
+        setPlansLoading(false)
+      })
+  }, [])
 
   // Checkout state
   const [step,       setStep]       = useState<'form'|'pay'|'done'>('form')
@@ -112,7 +153,8 @@ export default function LoginPage() {
         return
       }
       container.innerHTML = ''
-      const plan = PLANS.find(p => p.id === selectedPlan)!
+      const plan = PLANS.find(p => p.id === selectedPlan) ?? PLANS[0]
+      if (!plan) return
       ;(window as any).paypal.Buttons({
         style: { layout:'vertical', color:'gold', shape:'pill', label:'pay', height:44 },
         createOrder: (_d: any, actions: any) => actions.order.create({
@@ -139,7 +181,8 @@ export default function LoginPage() {
 
   // Step 2: PayPal approved → create account → activate subscription → login
   const createUserAndSubscribe = async (paypalOrderId: string) => {
-    const plan = PLANS.find(p => p.id === selectedPlan)!
+    const plan = PLANS.find(p => p.id === selectedPlan) ?? PLANS[0]
+    if (!plan) throw new Error('Plan no encontrado')
 
     // 1. Create user via Supabase Auth
     const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
@@ -190,7 +233,15 @@ export default function LoginPage() {
     setTimeout(() => navigate('/dashboard', { replace: true }), 2000)
   }
 
-  const plan = PLANS.find(p => p.id === selectedPlan)!
+  const plan = PLANS.find(p => p.id === selectedPlan) ?? PLANS[0]
+
+  // Show spinner while plans are loading
+  if (plansLoading) return (
+    <div className="min-h-screen flex items-center justify-center"
+      style={{ background: 'linear-gradient(135deg,#0f0c29 0%,#1a1040 40%,#0d1b3e 100%)' }}>
+      <Loader2 className="w-8 h-8 text-primary animate-spin" />
+    </div>
+  )
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
@@ -231,11 +282,17 @@ export default function LoginPage() {
         <motion.div animate={{ x: active ? '-100%' : '0%' }} transition={{ type:'spring', stiffness:280, damping:30 }}
           className="absolute inset-0 flex" style={{ width:'100%' }}>
           <div className="w-full md:w-1/2 h-full flex flex-col justify-center px-8 md:px-12 py-10">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center flex-shrink-0">
-                <Music2 className="w-5 h-5 text-white" />
+            <div className="flex items-center justify-between gap-3 mb-8">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Music2 className="w-5 h-5 text-white" />
+                </div>
+                <div><p className="font-semibold text-white">Royalties</p><p className="text-white/50 text-xs">Music Analytics</p></div>
               </div>
-              <div><p className="font-semibold text-white">Royalties</p><p className="text-white/50 text-xs">Music Analytics</p></div>
+              <button onClick={() => navigate('/')}
+                className="text-xs text-white/40 hover:text-white/70 transition-colors flex items-center gap-1 flex-shrink-0">
+                ← Sitio web
+              </button>
             </div>
             <AnimatePresence mode="wait">
               {subMode === 'login' ? (

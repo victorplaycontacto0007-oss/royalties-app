@@ -11,6 +11,7 @@ import ContractsPage from './pages/ContractsPage'
 import SubscriptionPage from './pages/SubscriptionPage'
 import RenewalPage from './pages/RenewalPage'
 import ProfilePage from './pages/ProfilePage'
+import AffiliatePage from './pages/AffiliatePage'
 import LandingPage from './pages/LandingPage'
 import Layout from './components/Layout'
 
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/contracts" element={<ContractsPage />} />
           <Route path="/profile"   element={<ProfilePage />} />
+          <Route path="/affiliate" element={<AffiliatePage />} />
           <Route path="/admin"     element={
             <ProtectedRoute adminOnly>
               <AdminPage />

@@ -27,26 +27,28 @@ import type { ProviderName } from './ProviderStrategy'
 
 const PROVIDERS: Array<{ name: ProviderName; signals: string[] }> = [
   // --- Distributors ---
-  { name: 'Ditto',         signals: ['ditto', 'tenantid', 'confirmationreportdate'] },
-  { name: 'DistroKid',     signals: ['distrokid', 'youearned', 'bankname'] },
-  { name: 'TuneCore',      signals: ['tunecore'] },
-  { name: 'CD Baby',       signals: ['cdbaby', 'cdbabypro'] },
-  { name: 'Believe',       signals: ['believe'] },
-  { name: 'FUGA',          signals: ['fuga', 'fugamusic'] },
-  { name: 'Symphonic',     signals: ['symphonic'] },
-  { name: 'ONErpm',        signals: ['onerpm'] },
-  { name: 'Too Lost',      signals: ['toolost'] },
-  { name: 'Amuse',         signals: ['amuse'] },
-  { name: 'RouteNote',     signals: ['routenote'] },
-  { name: 'UnitedMasters', signals: ['unitedmasters'] },
-  // --- DSPs ---
-  { name: 'Spotify',       signals: ['spotify'] },
-  { name: 'Apple Music',   signals: ['applemusic'] },
-  { name: 'Amazon Music',  signals: ['amazonmusic'] },
-  { name: 'Tidal',         signals: ['tidal'] },
-  { name: 'YouTube',       signals: ['youtube', 'contentid', 'partnerrevenue'] },
-  { name: 'TikTok',        signals: ['tiktok', 'bytedance'] },
-  { name: 'Meta',          signals: ['meta', 'facebook', 'instagram'] },
+  { name: 'Ditto',          signals: ['ditto', 'tenantid', 'confirmationreportdate'] },
+  { name: 'DistroKid',      signals: ['distrokid', 'youearned', 'bankname'] },
+  { name: 'TuneCore',       signals: ['tunecore'] },
+  { name: 'CD Baby',        signals: ['cdbaby', 'cdbabypro'] },
+  { name: 'Believe',        signals: ['believe'] },
+  { name: 'FUGA',           signals: ['fuga', 'fugamusic'] },
+  { name: 'Symphonic',      signals: ['symphonic'] },
+  { name: 'ONErpm',         signals: ['onerpm'] },
+  { name: 'Too Lost',       signals: ['toolost'] },
+  { name: 'Amuse',          signals: ['amuse'] },
+  { name: 'RouteNote',      signals: ['routenote'] },
+  { name: 'UnitedMasters',  signals: ['unitedmasters'] },
+  // --- Dinastía (before generic DSPs — tiebreak by position) ---
+  { name: 'Dinastía',             signals: ['dinastia', 'nettotalclientcurrency', 'clientcurrency'] },
+  // --- DSPs (renamed V2) ---
+  { name: 'Spotify Direct',       signals: ['spotifydirect'] },
+  { name: 'Apple Music Reports',  signals: ['applemusicreports', 'applemusic'] },
+  { name: 'Amazon Music Reports', signals: ['amazonmusicreports', 'amazonmusic'] },
+  { name: 'Tidal Reports',        signals: ['tidalreports', 'tidal'] },
+  { name: 'YouTube Content ID',   signals: ['youtubecontentid', 'youtube', 'contentid', 'partnerrevenue'] },
+  { name: 'TikTok',               signals: ['tiktok', 'bytedance'] },
+  { name: 'Meta',                 signals: ['meta', 'facebook', 'instagram'] },
 ]
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
   LayoutDashboard, Upload, FileText, LogOut,
-  Music2, Shield, FileSignature, ChevronRight, User, Crown,
+  Music2, Shield, FileSignature, ChevronRight, User, Crown, GitMerge,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { motion } from 'framer-motion'
@@ -13,6 +13,7 @@ const navItems = [
   { to: '/upload',    icon: Upload,          label: 'Subir Reporte' },
   { to: '/reports',   icon: FileText,        label: 'Mis Reportes'  },
   { to: '/contracts', icon: FileSignature,   label: 'Contratos'     },
+  { to: '/affiliate', icon: GitMerge,        label: 'Referidos'     },
 ]
 
 export default function Layout() {
@@ -100,7 +101,7 @@ export default function Layout() {
               )}>
               <Crown className="w-3.5 h-3.5 flex-shrink-0" />
               <span className="flex-1 text-left">
-                {daysLeft === 0 ? 'Vence hoy' : `${daysLeft} día${daysLeft !== 1 ? 's' : ''} restante${daysLeft !== 1 ? 's' : ''}`}
+                {daysLeft === 0 ? 'Vence hoy' : `${daysLeft} dia${daysLeft !== 1 ? 's' : ''} restante${daysLeft !== 1 ? 's' : ''}`}
               </span>
               <ChevronRight className="w-3 h-3 opacity-60" />
             </button>
@@ -130,7 +131,7 @@ export default function Layout() {
           <button onClick={handleSignOut}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-error hover:bg-error/5 transition-all duration-150">
             <LogOut className="w-4 h-4" />
-            <span>Cerrar sesión</span>
+            <span>Cerrar sesion</span>
           </button>
         </div>
       </aside>

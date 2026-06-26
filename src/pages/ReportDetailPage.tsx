@@ -18,6 +18,10 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
 import type { RoyaltyRecord, Report, Contract } from '../types/database'
+import type { CurrencyGroup } from '../royalty-engine/CurrencyGrouper'
+import { convertCurrencies } from '../royalty-engine/CurrencyConverter'
+import type { ConversionResult, TargetCurrency } from '../royalty-engine/CurrencyConverter'
+import CurrencyTab from '../components/CurrencyTab'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -67,6 +71,10 @@ export default function ReportDetailPage() {
 
   // groupBy view
   const [groupBy, setGroupBy] = useState<GroupBy>('song')
+
+  // main tab selector
+  type MainTab = 'resumen' | 'monedas'
+  const [activeTab, setActiveTab] = useState<MainTab>('resumen')
 
   // ui
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -136,6 +144,59 @@ export default function ReportDetailPage() {
     },
     enabled: !!id && !!user,
   })
+
+  // ── Currency groups from currency_records table ──────────────────────────
+  const { data: currencyGroups = [] } = useQuery<CurrencyGroup[]>({
+    queryKey: ['currency-records', id],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from('currency_records')
+        .select('*')
+        .eq('report_id', id!)
+        .eq('user_id', user!.id)
+        .order('total', { ascending: false })
+      if (error) throw error
+      if (!data || data.length === 0) return []
+
+      // Calculate global total to derive percentages client-side
+      const globalTotal = data.reduce((sum: number, row: { total: unknown }) => sum + Number(row.total), 0)
+
+      return data.map((row: {
+        currency: string
+        total: unknown
+        record_count: number
+      }) => {
+        const total = Number(row.total)
+        return {
+          currency:    row.currency,
+          total,
+          totalFixed8: total.toFixed(8),
+          recordCount: row.record_count,
+          percentage:  globalTotal > 0 ? (total / globalTotal) * 100 : 0,
+        } satisfies CurrencyGroup
+      })
+    },
+    enabled: !!id && !!user,
+  })
+
+  // ── Currency conversion state ─────────────────────────────────────────────
+  const [converting, setConverting]           = useState<boolean>(false)
+  const [conversionResult, setConversionResult] = useState<ConversionResult | null>(null)
+  const [conversionError, setConversionError]   = useState<string | null>(null)
+
+  const handleConvert = async (target: TargetCurrency): Promise<void> => {
+    setConverting(true)
+    setConversionResult(null)
+    setConversionError(null)
+    try {
+      const result = await convertCurrencies(currencyGroups, target)
+      setConversionResult(result)
+    } catch (err) {
+      setConversionError(err instanceof Error ? err.message : 'Error desconocido al convertir monedas.')
+    } finally {
+      setConverting(false)
+    }
+  }
 
   // ── Core data fetch: all rows for this report (paginated, robust) ────────
   // Fetches store, country, song_title, artist_name, sale_period, earnings_usd, quantity
@@ -598,6 +659,66 @@ export default function ReportDetailPage() {
           </AnimatePresence>
         </div>
       </motion.div>
+
+      {/* ── Tab navigation ──────────────────────────────────── */}
+      <div className="flex gap-1 mb-6 border-b border-border">
+        {([
+          { k: 'resumen', label: 'Resumen' },
+          { k: 'monedas', label: 'Monedas' },
+        ] as { k: MainTab; label: string }[]).map(tab => (
+          <button
+            key={tab.k}
+            onClick={() => setActiveTab(tab.k)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === tab.k
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Monedas tab ─────────────────────────────────────── */}
+      {activeTab === 'monedas' && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          {currencyGroups.length === 0 ? (
+            <div className="card flex flex-col items-center justify-center py-16 text-center gap-3">
+              <div className="w-12 h-12 bg-surface-2 rounded-xl flex items-center justify-center">
+                <DollarSign className="w-6 h-6 text-text-muted" />
+              </div>
+              <p className="text-text-primary font-medium text-sm">Sin datos de monedas</p>
+              <p className="text-text-muted text-xs max-w-xs">
+                No se encontraron registros de monedas para este reporte. Los datos aparecerán aquí
+                la próxima vez que se procese un archivo con información de monedas.
+              </p>
+            </div>
+          ) : (
+            <div className="card">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                  <DollarSign className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary">Totales por moneda</h3>
+                  <p className="text-xs text-text-muted">{currencyGroups.length} moneda{currencyGroups.length !== 1 ? 's' : ''} detectada{currencyGroups.length !== 1 ? 's' : ''}</p>
+                </div>
+              </div>
+              <CurrencyTab
+                groups={currencyGroups}
+                onConvert={handleConvert}
+                converting={converting}
+                conversionResult={conversionResult}
+                conversionError={conversionError}
+              />
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── Resumen tab ─────────────────────────────────────── */}
+      {activeTab === 'resumen' && (<>
 
       {/* ── Debug panel ─────────────────────────────────────── */}
       {dbDirectSum && (
@@ -1214,6 +1335,7 @@ export default function ReportDetailPage() {
           </Link>
         </div>
       )}
+      </>)} {/* end activeTab === 'resumen' */}
     </div>
   )
 }

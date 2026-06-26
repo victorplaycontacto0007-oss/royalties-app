@@ -46,6 +46,8 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'royaltyusd', 'royalty',
     // YouTube Content ID
     'partnerrevenue',
+    // Spotify Direct
+    'royalties',
     // Spotify / generic
     'revenue',
     // SoundOn
@@ -79,6 +81,7 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
   currency: [
     'currency', 'currencycode', 'cur', 'curr',
     'paymentcurrency', 'reportingcurrency',
+    'clientcurrency',
   ],
   currency_net_total: [
     'nettotalclientcurrency',

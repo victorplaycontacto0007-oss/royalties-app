@@ -7,6 +7,7 @@ import {
   Loader2, ShieldCheck, ArrowLeft,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { captureReferralCodeFromURL, useReferralCode, clearReferralCode } from '../hooks/useReferralCode'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
@@ -75,6 +76,10 @@ export default function SubscriptionPage() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
 
+  // Capture referral code from URL on mount
+  useEffect(() => { captureReferralCodeFromURL() }, [])
+  const referralCode = useReferralCode()
+
   // Load plans from Supabase
   useEffect(() => {
     db.from('plans')
@@ -90,6 +95,13 @@ export default function SubscriptionPage() {
         setPlansLoading(false)
       })
   }, [])
+
+  // If not logged in, redirect to login with signup panel open
+  useEffect(() => {
+    if (!user && !plansLoading) {
+      navigate('/login?signup=true', { replace: true })
+    }
+  }, [user, plansLoading])
 
   // If already has active subscription, redirect to dashboard
   useEffect(() => {
@@ -181,9 +193,12 @@ export default function SubscriptionPage() {
       expires_at:      expiresAt.toISOString(),
       paypal_order_id: paypalOrderId,
       amount_usd:      freshPlan.price,
+      referral_code:   referralCode ?? null,
     })
 
     if (insErr) throw new Error(insErr.message)
+
+    clearReferralCode()
 
     await refreshSubscription()
     setSuccess(true)

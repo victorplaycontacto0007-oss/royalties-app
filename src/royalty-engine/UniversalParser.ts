@@ -36,6 +36,7 @@ import { normalizeHeaders } from './HeaderNormalizer'
 import { resolveEarningsColumn, type ProviderName } from './ProviderStrategy'
 import { RowValidator, type ValidationIssue } from './RowValidator'
 import { DecimalAccumulator } from './DecimalAccumulator'
+import { groupByCurrency } from './CurrencyGrouper'
 import {
   buildAuditReport,
   buildDebugSnapshot,
@@ -433,6 +434,16 @@ export async function parseFile(
     ? { ...baseColMap, net_total: earningsColIdx }
     : baseColMap
 
+  // Guard for Dinastía: payment column is mandatory (Req 3.3)
+  if ((provider as string) === 'Dinast\u00eda') {
+    if (earningsColIdx === null) {
+      throw new Error(
+        'Reporte de Dinast\u00eda: columna "net_total_client_currency" no encontrada. ' +
+        'Verifica que el archivo contenga esta columna antes de procesar.'
+      )
+    }
+  }
+
   const currency = detectCurrency(textRows, rawHeaders, logger)
 
   logger.info(`Proveedor detectado: ${provider}`)
@@ -520,7 +531,15 @@ export async function parseFile(
     validationErrors: state.validationErrors,
   })
 
-  // ── 13. Compute stats (V2 signature) ─────────────────────────────────────
+  // ── 13a. Group by currency (payment-column-strategy) ─────────────────────
+  const { groups: currencyGroups } = groupByCurrency(
+    state.rows,
+    rawHeaders,
+    provider,
+    logger,
+  )
+
+  // ── 13. Compute stats (V2 + payment-column-strategy signature) ───────────
   const stats = computeStats(
     state.rows,
     currency,
@@ -529,6 +548,8 @@ export async function parseFile(
     state.rowErrors.length,
     audit.status,
     processingTimeMs,
+    currencyGroups,
+    earningsFieldUsed ?? '',
   )
 
   logger.info(`Total Neto: ${state.netAcc.toFixed8()} ${currency}`)

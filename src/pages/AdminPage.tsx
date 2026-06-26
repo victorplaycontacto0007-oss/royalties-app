@@ -6,12 +6,22 @@ import { formatDate } from '../lib/utils'
 import {
   Users, Plus, Pencil, Trash2, Power, Loader2,
   Shield, Activity, X, Check, Clock, Crown,
-  Calendar, RefreshCw, Zap, Star, Sparkles,
+  Calendar, RefreshCw, Zap, Star, Sparkles, GitMerge,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Profile, Subscription, SubscriptionPlan } from '../types/database'
 import { differenceInDays, format, addDays } from 'date-fns'
 import { es } from 'date-fns/locale'
+import CommissionForm from '../components/referrals/CommissionForm'
+import CommissionList from '../components/referrals/CommissionList'
+import CommissionEditModal from '../components/referrals/CommissionEditModal'
+import PaymentModal from '../components/referrals/PaymentModal'
+import AuditLogDrawer from '../components/referrals/AuditLogDrawer'
+import type { Commission } from '../types/referrals'
+import {
+  useApproveCommission, useRejectCommission,
+  useCancelCommission, useDeleteCommission,
+} from '../hooks/useCommissions'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
@@ -58,6 +68,19 @@ export default function AdminPage() {
   const [modal, setModal] = useState<ModalMode | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'referidos'>('usuarios')
+
+  // Referrals modals state
+  const [editCommission, setEditCommission]   = useState<Commission | null>(null)
+  const [payCommission, setPayCommission]     = useState<Commission | null>(null)
+  const [historyCommission, setHistoryCommission] = useState<Commission | null>(null)
+  const [deleteCommission, setDeleteCommission]   = useState<Commission | null>(null)
+  const [showCommissionForm, setShowCommissionForm] = useState(false)
+
+  const approveM  = useApproveCommission()
+  const rejectM   = useRejectCommission()
+  const cancelM   = useCancelCommission()
+  const deleteCommM = useDeleteCommission()
 
   // Fetch users + their subscriptions
   const { data: users, isLoading } = useQuery<ProfileWithSub[]>({
@@ -124,23 +147,143 @@ export default function AdminPage() {
   return (
     <div className="p-8">
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between mb-8">
+        className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-text-primary flex items-center gap-2">
             <Shield className="w-6 h-6 text-accent" /> Administración
           </h1>
-          <p className="text-text-muted mt-1">Gestión de usuarios y suscripciones</p>
+          <p className="text-text-muted mt-1">Gestión de usuarios, suscripciones y referidos</p>
         </div>
         <div className="flex gap-2">
           <button onClick={refresh} className="btn-secondary flex items-center gap-2 text-sm">
             <RefreshCw className="w-4 h-4" /> Actualizar
           </button>
-          <button onClick={() => setModal({ type: 'create' })} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Crear usuario
-          </button>
+          {activeTab === 'usuarios' && (
+            <button onClick={() => setModal({ type: 'create' })} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Crear usuario
+            </button>
+          )}
+          {activeTab === 'referidos' && (
+            <button onClick={() => setShowCommissionForm(v => !v)} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Registrar comisión
+            </button>
+          )}
         </div>
       </motion.div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 border-b border-border">
+        {([
+          { key: 'usuarios',  label: 'Usuarios',  Icon: Users     },
+          { key: 'referidos', label: 'Referidos', Icon: GitMerge  },
+        ] as const).map(({ key, label, Icon }) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-secondary hover:text-text-primary'
+            }`}>
+            <Icon className="w-4 h-4" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── REFERIDOS TAB ── */}
+      {activeTab === 'referidos' && (
+        <div className="space-y-6">
+          {showCommissionForm && (
+            <div className="card">
+              <h2 className="text-sm font-semibold text-text-primary mb-4">Registrar Comisión Manual</h2>
+              <CommissionForm onSuccess={() => setShowCommissionForm(false)} />
+            </div>
+          )}
+
+          <div className="card p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold text-text-primary">Comisiones</h2>
+            </div>
+            <div className="p-6">
+              <CommissionList
+                onEdit={setEditCommission}
+                onApprove={async (c) => {
+                  if (!currentUser) return
+                  try { await approveM.mutateAsync({ id: c.id, adminId: currentUser.id }) }
+                  catch (e: unknown) {
+                    if (e instanceof Error && e.message.includes('already_approved')) {
+                      alert('Esta comisión ya está aprobada.')
+                    } else {
+                      alert(e instanceof Error ? e.message : 'Error al aprobar')
+                    }
+                  }
+                }}
+                onReject={async (c) => {
+                  if (!currentUser) return
+                  const fn = c.status === 'Pendiente'
+                    ? () => rejectM.mutateAsync({ id: c.id, adminId: currentUser.id })
+                    : () => cancelM.mutateAsync({ id: c.id, adminId: currentUser.id })
+                  try { await fn() }
+                  catch (e: unknown) { alert(e instanceof Error ? e.message : 'Error') }
+                }}
+                onMarkPaid={setPayCommission}
+                onDelete={setDeleteCommission}
+                onHistory={setHistoryCommission}
+              />
+            </div>
+          </div>
+
+          {/* Delete confirmation */}
+          {deleteCommission && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+                <h3 className="font-semibold text-text-primary mb-2">¿Eliminar comisión?</h3>
+                <p className="text-text-secondary text-sm mb-5">
+                  Esta acción no se puede deshacer. ¿Confirmas la eliminación?
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setDeleteCommission(null)} className="btn-secondary flex-1">Cancelar</button>
+                  <button className="btn-danger flex-1"
+                    onClick={async () => {
+                      try {
+                        await deleteCommM.mutateAsync(deleteCommission.id)
+                        setDeleteCommission(null)
+                      } catch (e: unknown) {
+                        alert(e instanceof Error ? e.message : 'Error al eliminar')
+                      }
+                    }}>
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {editCommission && (
+            <CommissionEditModal
+              commission={editCommission}
+              onClose={() => setEditCommission(null)}
+              onSuccess={() => setEditCommission(null)}
+            />
+          )}
+
+          {payCommission && (
+            <PaymentModal
+              commission={payCommission}
+              onClose={() => setPayCommission(null)}
+              onSuccess={() => setPayCommission(null)}
+            />
+          )}
+
+          {historyCommission && (
+            <AuditLogDrawer
+              commission={historyCommission}
+              onClose={() => setHistoryCommission(null)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── USUARIOS TAB ── */}
+      {activeTab === 'usuarios' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Users table */}
         <div className="lg:col-span-2">
@@ -245,6 +388,7 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+      )} {/* end usuarios tab */}
 
       {/* Modals */}
       <AnimatePresence>

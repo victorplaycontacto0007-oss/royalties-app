@@ -1,13 +1,16 @@
 /**
  * ProviderStrategy.ts
  *
- * Central table that defines, per provider, which fields to look for
- * (in priority order) to calculate net_total.
+ * Central table that defines, per provider, the single payment column to use
+ * for net_total accumulation (V2: deterministic paymentColumn).
  *
- * Requirement: 4
+ * Backward-compat: resolveEarningsColumn() public signature is unchanged.
+ *
+ * Requirements: 1, 2, 3, 4, 10, 11
  */
 
-import { ALIAS_DICTIONARY } from './AliasDictionary'
+import { ALIAS_DICTIONARY, EXCLUDED_COLUMNS } from './AliasDictionary'
+import { normalizeHeader } from './HeaderNormalizer'
 import { Logger } from './Logger'
 
 // ---------------------------------------------------------------------------
@@ -15,6 +18,7 @@ import { Logger } from './Logger'
 // ---------------------------------------------------------------------------
 
 export type ProviderName =
+  | 'Dinastía'             // NEW V2
   | 'Ditto'
   | 'DistroKid'
   | 'TuneCore'
@@ -27,123 +31,171 @@ export type ProviderName =
   | 'RouteNote'
   | 'Too Lost'
   | 'Amuse'
+  | 'Spotify Direct'       // renamed from 'Spotify'
+  | 'Apple Music Reports'  // renamed from 'Apple Music'
+  | 'Amazon Music Reports' // renamed from 'Amazon Music'
+  | 'Tidal Reports'        // renamed from 'Tidal'
+  | 'YouTube Content ID'   // renamed from 'YouTube'
+  | 'TikTok'
+  | 'Meta'
+  | 'UNKNOWN'
+  // V1 names kept in union for backward compat with DB records
   | 'Spotify'
   | 'Apple Music'
   | 'Amazon Music'
   | 'Tidal'
   | 'YouTube'
-  | 'TikTok'
-  | 'Meta'
-  | 'UNKNOWN'
 
 export interface ProviderStrategyEntry {
-  /** Normalized candidate field names to try in order. First found in the file wins. */
-  earningsCandidates: string[]
-  /** For Ditto: also capture currency_net_total as secondary */
+  /**
+   * Pre-normalization name of the single payment column for this provider.
+   * PaymentColumnResolver normalizes this with normalizeHeader() before lookup.
+   * No fallbacks — if this column is absent, resolution returns null.
+   * UNKNOWN uses '' as sentinel for alias-fallback path.
+   */
+  paymentColumn: string
+
+  /**
+   * Default ISO currency code when no currency column is detected in the file.
+   * Defaults to 'USD' when absent.
+   */
+  defaultCurrency?: string
+
+  /**
+   * @deprecated V1 field kept for backward compat with existing tests.
+   * resolveEarningsColumn() now delegates to paymentColumn internally.
+   */
+  earningsCandidates?: string[]
+
+  /** @deprecated V1 secondary field for Ditto. Ignored by new resolver. */
   secondaryField?: string
 }
 
 // ---------------------------------------------------------------------------
-// Strategy table  (Requirement 4.1)
+// Strategy table  (Req 1.1 — 21 entries + UNKNOWN + V1 aliases)
 // ---------------------------------------------------------------------------
 
-export const PROVIDER_STRATEGIES: Record<ProviderName, ProviderStrategyEntry> = {
-  Ditto:          { earningsCandidates: ['nettotal'],                                              secondaryField: 'currencynettotal' },
-  DistroKid:      { earningsCandidates: ['netearnings', 'royaltyamount', 'payment'] },
-  TuneCore:       { earningsCandidates: ['netrevenue', 'royaltyamount', 'netamount'] },
-  ONErpm:         { earningsCandidates: ['netrevenue', 'amount', 'royalty'] },
-  Believe:        { earningsCandidates: ['netamount', 'royalty'] },
-  'CD Baby':      { earningsCandidates: ['netpayable', 'netearnings'] },
-  Symphonic:      { earningsCandidates: ['netrevenue'] },
-  UnitedMasters:  { earningsCandidates: ['royaltyamount'] },
-  FUGA:           { earningsCandidates: ['royaltyamount'] },
-  RouteNote:      { earningsCandidates: ['netamount'] },
-  'Too Lost':     { earningsCandidates: ['netrevenue', 'royalty'] },
-  Amuse:          { earningsCandidates: ['netrevenue'] },
-  Spotify:        { earningsCandidates: ['royalty', 'revenue'] },
-  'Apple Music':  { earningsCandidates: ['royalty', 'netamount'] },
-  'Amazon Music': { earningsCandidates: ['royalty'] },
-  Tidal:          { earningsCandidates: ['royalty'] },
-  YouTube:        { earningsCandidates: ['partnerrevenue', 'netrevenue', 'royalty'] },
-  TikTok:         { earningsCandidates: ['royalty', 'netrevenue'] },
-  Meta:           { earningsCandidates: ['royalty', 'netrevenue'] },
-  UNKNOWN:        { earningsCandidates: ['nettotal', 'royalty', 'netrevenue', 'netearnings', 'netamount'] },
+export const PROVIDER_STRATEGIES: Record<string, ProviderStrategyEntry> = {
+  'Dinastía':             { paymentColumn: 'net_total_client_currency', defaultCurrency: 'COP' },
+  'Ditto':                { paymentColumn: 'net_total',                 defaultCurrency: 'USD',
+                            earningsCandidates: ['nettotal'],           secondaryField: 'currencynettotal' },
+  'DistroKid':            { paymentColumn: 'earnings',                  defaultCurrency: 'USD',
+                            earningsCandidates: ['netearnings', 'royaltyamount', 'payment'] },
+  'TuneCore':             { paymentColumn: 'net_revenue',               defaultCurrency: 'USD',
+                            earningsCandidates: ['netrevenue', 'royaltyamount', 'netamount'] },
+  'ONErpm':               { paymentColumn: 'net_revenue',               defaultCurrency: 'USD',
+                            earningsCandidates: ['netrevenue', 'amount', 'royalty'] },
+  'Believe':              { paymentColumn: 'net_amount',                defaultCurrency: 'EUR',
+                            earningsCandidates: ['netamount', 'royalty'] },
+  'CD Baby':              { paymentColumn: 'net_payable',               defaultCurrency: 'USD',
+                            earningsCandidates: ['netpayable', 'netearnings'] },
+  'Symphonic':            { paymentColumn: 'net_revenue',               defaultCurrency: 'USD',
+                            earningsCandidates: ['netrevenue'] },
+  'UnitedMasters':        { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royaltyamount'] },
+  'FUGA':                 { paymentColumn: 'royalty_amount',            defaultCurrency: 'USD',
+                            earningsCandidates: ['royaltyamount'] },
+  'RouteNote':            { paymentColumn: 'net_amount',                defaultCurrency: 'USD',
+                            earningsCandidates: ['netamount'] },
+  'Too Lost':             { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['netrevenue', 'royalty'] },
+  'Amuse':                { paymentColumn: 'net_revenue',               defaultCurrency: 'USD',
+                            earningsCandidates: ['netrevenue'] },
+  'Spotify Direct':       { paymentColumn: 'royalties',                 defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty', 'revenue'] },
+  'Apple Music Reports':  { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty', 'netamount'] },
+  'Amazon Music Reports': { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty'] },
+  'Tidal Reports':        { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty'] },
+  'YouTube Content ID':   { paymentColumn: 'partner_revenue',           defaultCurrency: 'USD',
+                            earningsCandidates: ['partnerrevenue', 'netrevenue', 'royalty'] },
+  'TikTok':               { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty', 'netrevenue'] },
+  'Meta':                 { paymentColumn: 'revenue',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty', 'netrevenue'] },
+  'UNKNOWN':              { paymentColumn: '',                          defaultCurrency: 'USD',
+                            earningsCandidates: ['nettotal', 'royalty', 'netrevenue', 'netearnings', 'netamount'] },
+  // V1 names — alias to their V2 equivalents for backward compat
+  'Spotify':              { paymentColumn: 'royalties',                 defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty', 'revenue'] },
+  'Apple Music':          { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty', 'netamount'] },
+  'Amazon Music':         { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty'] },
+  'Tidal':                { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['royalty'] },
+  'YouTube':              { paymentColumn: 'partner_revenue',           defaultCurrency: 'USD',
+                            earningsCandidates: ['partnerrevenue', 'netrevenue', 'royalty'] },
 }
 
 // ---------------------------------------------------------------------------
-// resolveEarningsColumn
+// PaymentColumnResolver (internal) + resolveEarningsColumn (public)
 // ---------------------------------------------------------------------------
 
 /**
- * Given a provider and the normalized column headers already present in a
- * file, returns the column index and the matched candidate name.
+ * resolveEarningsColumn — public signature UNCHANGED (Req 11.2).
  *
- * Resolution order (Requirement 4.6, 4.7):
- *  1. Iterate earningsCandidates in priority order → first exact match wins.
- *  2. If a candidate was skipped (fallback), log [WARN].
- *  3. If no candidate matched at all, fall back to ALIAS_DICTIONARY['net_total']
- *     aliases and log [ERROR].
+ * Internally delegates to PaymentColumnResolver algorithm:
  *
- * Logging (Requirement 17):
- *  - [INFO]  when a column is selected (always)
- *  - [WARN]  when the primary candidate was skipped and a fallback was used
- *  - [ERROR] when no strategy candidate matched and the generic alias was used
+ * 1. Guard: unknown provider → delegate to UNKNOWN
+ * 2. UNKNOWN / empty paymentColumn → iterate ALIAS_DICTIONARY['net_total']
+ * 3. Known provider → single paymentColumn lookup
+ * 4. Column not found → return null (no fallback for known providers)
  */
 export function resolveEarningsColumn(
   provider: ProviderName,
   normalizedHeaders: string[],
   logger: Logger,
 ): { colIdx: number | null; fieldUsed: string | null } {
-  const strategy = PROVIDER_STRATEGIES[provider]
-  const { earningsCandidates } = strategy
 
-  let firstMiss = true   // tracks whether we had to skip the primary candidate
+  const strategy = PROVIDER_STRATEGIES[provider as string]
 
-  for (let i = 0; i < earningsCandidates.length; i++) {
-    const candidate = earningsCandidates[i]
-    const idx = normalizedHeaders.indexOf(candidate)
+  // Guard: provider not in table
+  if (!strategy) {
+    logger.warn(`Proveedor "${provider}" no encontrado en PROVIDER_STRATEGIES; usando UNKNOWN`)
+    return resolveEarningsColumn('UNKNOWN', normalizedHeaders, logger)
+  }
 
-    if (idx !== -1) {
-      // Found a match
-      const isPrimary = i === 0
-
-      if (!isPrimary) {
-        // We skipped at least one higher-priority candidate
-        logger.warn(
-          `Columna primaria no encontrada, usando fallback: ${candidate}`,
-        )
+  // Path 1: UNKNOWN or empty paymentColumn — alias fallback (backward compat)
+  if (provider === 'UNKNOWN' || strategy.paymentColumn === '') {
+    const netTotalAliases = ALIAS_DICTIONARY['net_total']
+    for (const alias of netTotalAliases) {
+      const normAlias = normalizeHeader(alias)
+      if (EXCLUDED_COLUMNS.has(normAlias)) continue
+      const idx = normalizedHeaders.indexOf(normAlias)
+      if (idx !== -1) {
+        logger.warn('estrategia genérica en uso')
+        logger.info(`Columna seleccionada: ${normalizedHeaders[idx]} (UNKNOWN alias)`)
+        return { colIdx: idx, fieldUsed: alias }
       }
-
-      // [INFO] always log the selected column
-      logger.info(
-        `Columna de ganancias seleccionada: ${normalizedHeaders[idx]} (estrategia: ${provider}, campo: ${candidate})`,
-      )
-
-      return { colIdx: idx, fieldUsed: candidate }
     }
-
-    // Mark that we missed at least the first candidate
-    if (i === 0) firstMiss = true
+    return { colIdx: null, fieldUsed: null }
   }
 
-  // -----------------------------------------------------------------------
-  // No strategy candidate found — fallback to ALIAS_DICTIONARY net_total
-  // -----------------------------------------------------------------------
-  logger.error(
-    'Ningún candidato de estrategia encontrado, usando alias genérico net_total',
-  )
+  // Path 2: Known provider — single paymentColumn lookup
+  const normPayment = normalizeHeader(strategy.paymentColumn)
 
-  const netTotalAliases = ALIAS_DICTIONARY['net_total']
-  for (const alias of netTotalAliases) {
-    const idx = normalizedHeaders.indexOf(alias)
-    if (idx !== -1) {
-      logger.info(
-        `Columna de ganancias seleccionada: ${normalizedHeaders[idx]} (estrategia: ${provider}, campo: ${alias})`,
-      )
-      return { colIdx: idx, fieldUsed: alias }
-    }
+  // Safety: never return an EXCLUDED column
+  if (EXCLUDED_COLUMNS.has(normPayment)) {
+    logger.error(`paymentColumn "${strategy.paymentColumn}" está en EXCLUDED_COLUMNS`)
+    return { colIdx: null, fieldUsed: null }
   }
 
-  // Truly nothing found
+  const idx = normalizedHeaders.indexOf(normPayment)
+
+  if (idx !== -1) {
+    logger.info(`Columna de pago: ${normalizedHeaders[idx]} (proveedor: ${provider})`)
+    return { colIdx: idx, fieldUsed: strategy.paymentColumn }
+  }
+
+  // Column not found — no fallback
+  if (provider === 'Dinastía') {
+    logger.error(`Columna oficial de Dinastia "net_total_client_currency" no encontrada`)
+  } else {
+    logger.error(`Columna de pago "${strategy.paymentColumn}" no encontrada para ${provider}`)
+  }
+
   return { colIdx: null, fieldUsed: null }
 }

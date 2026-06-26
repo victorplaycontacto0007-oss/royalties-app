@@ -109,6 +109,31 @@ export interface Database {
         }
         Update: never
       }
+      currency_records: {
+        Row: {
+          id: string
+          report_id: string
+          user_id: string
+          provider: string
+          currency: string
+          payment_column_used: string
+          total: string
+          record_count: number
+          import_date: string
+        }
+        Insert: {
+          id?: string
+          report_id: string
+          user_id: string
+          provider: string
+          currency: string
+          payment_column_used: string
+          total: string
+          record_count: number
+          import_date?: string
+        }
+        Update: never
+      }
     }
   }
 }
@@ -117,6 +142,7 @@ export type Profile = Database['public']['Tables']['profiles']['Row']
 export type Report = Database['public']['Tables']['reports']['Row']
 export type RoyaltyRecord = Database['public']['Tables']['royalty_records']['Row']
 export type ActivityLog = Database['public']['Tables']['activity_logs']['Row']
+export type CurrencyRecord = Database['public']['Tables']['currency_records']['Row']
 
 // V2 — extends Report with audit/financial fields added by royalty-engine-v2
 // The base Report type is left unchanged for backward compatibility.

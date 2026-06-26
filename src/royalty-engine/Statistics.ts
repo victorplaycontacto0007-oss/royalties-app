@@ -1,7 +1,8 @@
 import type { ParsedRow } from './UniversalParser'
+import type { CurrencyGroup } from './CurrencyGrouper'
 
 export interface RUPEStats {
-  // ── V1 fields (unchanged) ────────────────────────────────────────────────
+  // V1 fields (unchanged)
   totalRows:       number
   totalNet:        number
   totalGross:      number
@@ -24,7 +25,7 @@ export interface RUPEStats {
   byMonth:         Array<{ month: string; net: number }>
   errors:          number
   processingLog:   string[]
-  // ── V2 additions ─────────────────────────────────────────────────────────
+  // V2 additions
   /** Sum of quantity for rows where transaction_type === 'download' (case-insensitive). */
   totalDownloads:  number
   /** Top 20 albums ranked by net total descending. */
@@ -33,6 +34,11 @@ export interface RUPEStats {
   auditStatus:     'valid' | 'discrepancy' | 'error'
   /** Total wall-clock time in milliseconds spent processing the file. */
   processingTimeMs: number
+  // payment-column-strategy additions
+  /** Currency breakdown from CurrencyGrouper. Empty array if not computed. */
+  currencyGroups:    CurrencyGroup[]
+  /** Column name (pre-normalization) used for payment accumulation. */
+  paymentColumnUsed: string
 }
 
 type AggMap = Record<string, { net: number; streams: number }>
@@ -63,6 +69,8 @@ export function computeStats(
   errors: number,
   auditStatus: 'valid' | 'discrepancy' | 'error' = 'valid',
   processingTimeMs: number = 0,
+  currencyGroups: CurrencyGroup[] = [],
+  paymentColumnUsed: string = '',
 ): RUPEStats {
   let totalNet = 0, totalGross = 0, totalTaxes = 0, totalCosts = 0, totalStreams = 0, totalDownloads = 0
 
@@ -73,7 +81,6 @@ export function computeStats(
     totalCosts  += r.channel_costs + r.other_costs
     totalStreams += r.quantity
 
-    // Count downloads: rows whose transaction_type (if present) is 'download'
     const txType = ((r as unknown as Record<string, unknown>)['transaction_type'] as string | undefined) ?? ''
     if (txType.toLowerCase() === 'download') {
       totalDownloads += r.quantity
@@ -87,7 +94,6 @@ export function computeStats(
   }
 
   return {
-    // ── V1 fields ──────────────────────────────────────────────────────────
     totalRows:       rows.length,
     totalNet:        Math.round(totalNet * 1e8) / 1e8,
     totalGross:      Math.round(totalGross * 1e8) / 1e8,
@@ -110,10 +116,11 @@ export function computeStats(
     byMonth: Object.entries(monthMap).map(([month, net]) => ({ month, net })).sort((a, b) => a.month.localeCompare(b.month)),
     errors,
     processingLog:   log,
-    // ── V2 fields ──────────────────────────────────────────────────────────
     totalDownloads,
     byAlbum:          top(agg(rows, 'album')),
     auditStatus,
     processingTimeMs,
+    currencyGroups,
+    paymentColumnUsed,
   }
 }
