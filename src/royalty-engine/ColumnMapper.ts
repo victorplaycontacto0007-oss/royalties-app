@@ -9,6 +9,19 @@ import type { Logger } from './Logger'
 
 export type ColumnIndex = Record<CanonicalField, number | null>
 
+/**
+ * Fields that must ONLY be mapped via exact match — never partial.
+ * This prevents net_total_client_currency from matching net_total, etc.
+ */
+const EXACT_ONLY_FIELDS = new Set<CanonicalField>([
+  'net_total',
+  'gross_total',
+  'taxes',
+  'channel_costs',
+  'other_costs',
+  'currency_net_total',
+])
+
 export function mapColumns(rawHeaders: string[], logger: Logger): ColumnIndex {
   const normalized = normalizeHeaders(rawHeaders)
   const result = {} as ColumnIndex
@@ -16,14 +29,20 @@ export function mapColumns(rawHeaders: string[], logger: Logger): ColumnIndex {
   for (const field of Object.keys(ALIAS_DICTIONARY) as CanonicalField[]) {
     result[field] = null
     const aliases = ALIAS_DICTIONARY[field]
+    const exactOnly = EXACT_ONLY_FIELDS.has(field)
 
-    // Pass 1: exact match (after normalization)
+    // Pass 1: strict exact match after normalization — pick FIRST occurrence only
     for (const alias of aliases) {
       const normAlias = normalizeHeader(alias)
-      // Never map excluded columns as earnings
       if (EXCLUDED_COLUMNS.has(normAlias)) continue
+      // findIndex returns the FIRST match — for net_total this will be col 12,
+      // not col 17 (net_total_client_currency) because they normalize differently
       const idx = normalized.findIndex(h => h === normAlias)
       if (idx !== -1) {
+        // Extra safety: make sure the matched header IS exactly the alias
+        // (not a superset like nettotalclientcurrency matching nettotal)
+        const rawNorm = normalizeHeader(rawHeaders[idx] ?? '')
+        if (rawNorm !== normAlias) continue
         result[field] = idx
         logger.info(`"${field}" → col[${idx}] "${rawHeaders[idx]}" (exact)`)
         break
@@ -31,34 +50,20 @@ export function mapColumns(rawHeaders: string[], logger: Logger): ColumnIndex {
     }
 
     if (result[field] !== null) continue
+    if (exactOnly) continue  // money fields: never do fuzzy/partial matching
 
-    // Pass 2: alias starts-with or equals (no partial contain to avoid false matches)
+    // Pass 2: partial match — only for non-money fields (artist, track, platform, etc.)
     for (const alias of aliases) {
       const normAlias = normalizeHeader(alias)
       if (EXCLUDED_COLUMNS.has(normAlias)) continue
       const idx = normalized.findIndex(h => {
         if (EXCLUDED_COLUMNS.has(h)) return false
-        // Only match if header starts with alias (avoids nettotalclientcurrency matching nettotal)
-        return h === normAlias || h.startsWith(normAlias + '_') || h.startsWith(normAlias + 'cl')
+        return h.includes(normAlias) || normAlias.includes(h)
       })
       if (idx !== -1) {
         result[field] = idx
-        logger.info(`"${field}" → col[${idx}] "${rawHeaders[idx]}" (prefix)`)
+        logger.info(`"${field}" → col[${idx}] "${rawHeaders[idx]}" (partial)`)
         break
-      }
-    }
-  }
-
-  // Special: net_total must NOT map to net_total_client_currency
-  // Enforce strict exact match for net_total
-  if (result.net_total !== null) {
-    const colName = normalizeHeader(rawHeaders[result.net_total] ?? '')
-    if (colName !== 'nettotal' && colName !== 'net_total'.replace('_','')) {
-      // Check if there's an exact 'nettotal' column elsewhere
-      const exactIdx = normalized.findIndex(h => h === 'nettotal')
-      if (exactIdx !== -1 && exactIdx !== result.net_total) {
-        result.net_total = exactIdx
-        logger.info(`"net_total" corrected → col[${exactIdx}] "${rawHeaders[exactIdx]}" (strict)`)
       }
     }
   }
@@ -80,6 +85,9 @@ export function mapColumns(rawHeaders: string[], logger: Logger): ColumnIndex {
   } else {
     logger.info(`✅ Ingresos netos → col[${result.net_total}] "${rawHeaders[result.net_total]}"`)
   }
+
+  // Log ALL detected columns for debug
+  logger.info(`📋 Headers detectados: ${rawHeaders.slice(0, 30).map((h, i) => `[${i}]${h}`).join(' | ')}`)
 
   return result
 }

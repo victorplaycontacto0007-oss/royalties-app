@@ -380,7 +380,7 @@ export default function LoginPage() {
                             ? 'border-primary bg-primary/15 shadow-lg shadow-primary/20'
                             : 'border-white/10 hover:border-white/25 bg-white/5'
                         }`}>
-                        {p.badge && (
+                        {'badge' in p && p.badge && (
                           <span className="absolute top-2 right-2 text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
                             style={{background:'rgba(99,102,241,0.4)',color:'#c4b5fd'}}>{p.badge}</span>
                         )}

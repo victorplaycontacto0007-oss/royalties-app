@@ -4,22 +4,28 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { detectAvailablePeriods, normalizeSalePeriod } from '../lib/distrokid-parser'
 import { parseFile } from '../royalty-engine'
-import type { RUPEStats } from '../royalty-engine'
+import type { RUPEStats, AuditReport, DebugSnapshot } from '../royalty-engine'
 import {
   FileText, CheckCircle, XCircle, Loader2, CloudUpload,
-  AlertTriangle, Info, Calendar, ChevronRight,
+  AlertTriangle, Calendar, ChevronRight,
 } from 'lucide-react'
+import AuditSummary from '../components/AuditSummary'
+import DebugViewer from '../components/DebugViewer'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
-type UploadStatus = 'idle' | 'detecting' | 'selecting' | 'uploading' | 'processing' | 'success' | 'error'
+type UploadStatus = 'idle' | 'detecting' | 'selecting' | 'uploading' | 'processing' | 'saving' | 'success' | 'discrepancy' | 'error'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
 
 function sortPeriods(periods: string[]): string[] {
   return [...periods].sort((a, b) => normalizeSalePeriod(a).localeCompare(normalizeSalePeriod(b)))
+}
+
+function fmt(value: number): string {
+  return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 export default function UploadPage() {
@@ -32,6 +38,9 @@ export default function UploadPage() {
   const [progress, setProgress]     = useState('')
   const [reportId, setReportId]     = useState('')
   const [stats, setStats]           = useState<RUPEStats | null>(null)
+  const [audit, setAudit]           = useState<AuditReport | null>(null)
+  const [debug, setDebug]           = useState<DebugSnapshot | null>(null)
+  const [isDebugOpen, setIsDebugOpen] = useState(false)
 
   const [pendingFile, setPendingFile]               = useState<File | null>(null)
   const [availablePeriods, setAvailablePeriods]     = useState<string[]>([])
@@ -87,7 +96,11 @@ export default function UploadPage() {
 
       // 3. Parse with RUPE
       setStatus('processing'); setProgress('Analizando reporte con RUPE...')
-      const { rows: allRows, stats: parsedStats } = await parseFile(pendingFile)
+      const { rows: allRows, stats: parsedStats, audit: parsedAudit, debug: parsedDebug } = await parseFile(pendingFile, {
+        onProgress: (processed, total) => {
+          setProgress(`Procesando... ${processed.toLocaleString()} / ${total > 0 ? total.toLocaleString() : '?'} filas`)
+        },
+      })
 
       // Filter by selected periods
       const selNorm = new Set([...selectedPeriods].map(p => normalizeSalePeriod(p)))
@@ -98,6 +111,7 @@ export default function UploadPage() {
       if (rows.length === 0) throw new Error('No se encontraron datos válidos para los períodos seleccionados.')
 
       // 4. Insert in parallel batches
+      setStatus('saving')
       setProgress(`Guardando ${rows.length.toLocaleString()} registros...`)
       const BATCH = 1000, CONCURRENCY = 5
       const batches: object[][] = []
@@ -129,8 +143,24 @@ export default function UploadPage() {
         setProgress(`Guardando... ${Math.min(done, rows.length).toLocaleString()}/${rows.length.toLocaleString()}`)
       }
 
-      // 5. Mark complete
-      await db.from('reports').update({ status: 'completed', processed_at: new Date().toISOString() }).eq('id', report.id)
+      // 5. Mark complete with V2 audit fields
+      await db.from('reports').update({
+        status: 'completed',
+        processed_at: new Date().toISOString(),
+        provider: parsedStats.provider,
+        currency: parsedStats.currency,
+        net_total: parsedStats.totalNet,
+        gross_total: parsedStats.totalGross,
+        taxes: parsedStats.totalTaxes,
+        channel_costs: parsedStats.totalCosts,
+        other_costs: 0,
+        audit_status: parsedAudit.status,
+        discrepancy_note: parsedAudit.discrepancyNote,
+        processing_ms: parsedAudit.processingTimeMs,
+        reported_month: parsedAudit.reportedMonth,
+        total_columns: parsedAudit.totalColumns,
+        error_rows: parsedAudit.errorRows,
+      }).eq('id', report.id)
 
       // 6. Activity log
       await db.from('activity_logs').insert({
@@ -148,7 +178,9 @@ export default function UploadPage() {
 
       setStats({ ...parsedStats, totalRows: rows.length })
       setReportId(report.id)
-      setStatus('success')
+      setAudit(parsedAudit)
+      setDebug(parsedDebug ?? null)
+      setStatus(parsedAudit.status === 'discrepancy' ? 'discrepancy' : 'success')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al procesar el archivo')
       setStatus('error')
@@ -157,7 +189,8 @@ export default function UploadPage() {
 
   const reset = () => {
     setStatus('idle'); setError(''); setProgress(''); setReportId('')
-    setStats(null); setPendingFile(null); setAvailablePeriods([]); setSelectedPeriods(new Set()); setOfficialTotal(null)
+    setStats(null); setAudit(null); setDebug(null); setIsDebugOpen(false)
+    setPendingFile(null); setAvailablePeriods([]); setSelectedPeriods(new Set()); setOfficialTotal(null)
   }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -167,12 +200,10 @@ export default function UploadPage() {
       'text/plain': ['.txt', '.tsv'],
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
       'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.oasis.opendocument.spreadsheet': ['.ods'],
     },
     maxFiles: 1, disabled: status !== 'idle',
   })
-
-  const fmt = (n: number) =>
-    n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 8 })
 
   return (
     <div className="p-8 max-w-2xl mx-auto">
@@ -212,7 +243,7 @@ export default function UploadPage() {
                       {isDragActive ? 'Suelta el archivo aquí' : 'Arrastra tu reporte aquí'}
                     </p>
                     <p className="text-text-muted text-sm mt-1">o haz clic para seleccionar</p>
-                    <p className="text-text-muted text-xs mt-3">CSV, TSV, XLS, XLSX · DistroKid, TuneOrchard, SoundOn y más</p>
+                    <p className="text-text-muted text-xs mt-3">CSV, TSV, XLS, XLSX, ODS · DistroKid, TuneOrchard, SoundOn y más</p>
                   </div>
                 )}
               </div>
@@ -316,8 +347,8 @@ export default function UploadPage() {
             </div>
           </motion.div>
 
-        /* ── STEP 3: UPLOADING / PROCESSING ───────────────────── */
-        ) : status === 'uploading' || status === 'processing' ? (
+        /* ── STEP 3: UPLOADING / PROCESSING / SAVING ─────────────── */
+        ) : status === 'uploading' || status === 'processing' || status === 'saving' ? (
           <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="card text-center py-12">
               <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-4" />
@@ -341,72 +372,97 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {stats && (
-              <div className="card space-y-3">
-                <p className="text-text-secondary text-sm font-medium flex items-center gap-2">
-                  <Info className="w-4 h-4" /> Resumen RUPE · <span className="text-text-muted font-normal">{stats.provider}</span>
-                </p>
+            {stats && audit && (
+              <AuditSummary
+                audit={audit}
+                stats={stats}
+                onViewAudit={() => setIsDebugOpen(true)}
+                onViewAnalysis={() => navigate(`/reports/${reportId}`)}
+              />
+            )}
 
-                {/* Key numbers */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-surface-2 rounded-xl p-3">
-                    <p className="text-text-muted text-xs mb-1">Total Neto</p>
-                    <p className="text-text-primary font-bold text-base">{fmt(stats.totalNet)}</p>
-                    <p className="text-text-muted text-xs mt-0.5 opacity-70">{stats.currency}</p>
-                  </div>
-                  <div className="bg-surface-2 rounded-xl p-3">
-                    <p className="text-text-muted text-xs mb-1">Total Streams</p>
-                    <p className="text-text-primary font-bold text-base">{stats.totalStreams.toLocaleString()}</p>
-                    <p className="text-text-muted text-xs mt-0.5 opacity-70">{stats.totalRows.toLocaleString()} registros</p>
-                  </div>
-                  {stats.totalGross > 0 && (
-                    <div className="bg-surface-2 rounded-xl p-3">
-                      <p className="text-text-muted text-xs mb-1">Total Bruto</p>
-                      <p className="text-text-primary font-semibold text-base">{fmt(stats.totalGross)}</p>
-                    </div>
-                  )}
-                  {stats.totalTaxes > 0 && (
-                    <div className="bg-surface-2 rounded-xl p-3">
-                      <p className="text-text-muted text-xs mb-1">Impuestos</p>
-                      <p className="text-text-primary font-semibold text-base">{fmt(stats.totalTaxes)}</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Counts */}
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  {[
-                    { label: 'Canciones',   val: stats.uniqueSongs },
-                    { label: 'Artistas',    val: stats.uniqueArtists },
-                    { label: 'Plataformas', val: stats.uniquePlatforms },
-                    { label: 'Países',      val: stats.uniqueCountries },
-                    { label: 'ISRC',        val: stats.uniqueISRC },
-                    { label: 'UPC',         val: stats.uniqueUPC },
-                  ].map(({ label, val }) => (
-                    <div key={label} className="bg-surface-2 rounded-xl p-2">
-                      <p className="text-text-primary font-bold text-sm">{val}</p>
-                      <p className="text-text-muted text-xs">{label}</p>
-                    </div>
+            {/* Processing log */}
+            {stats && stats.processingLog.length > 0 && (
+              <details className="rounded-xl border border-border overflow-hidden text-xs font-mono">
+                <summary className="bg-surface-2 px-3 py-2 cursor-pointer text-text-secondary font-semibold">
+                  🔍 Log de procesamiento ({stats.processingLog.length} entradas)
+                </summary>
+                <div className="px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto">
+                  {stats.processingLog.map((line, i) => (
+                    <p key={i} className={`text-[10px] leading-relaxed ${
+                      line.includes('[ERROR]') ? 'text-error' :
+                      line.includes('[WARN]')  ? 'text-warning' : 'text-text-muted'
+                    }`}>{line}</p>
                   ))}
                 </div>
+              </details>
+            )}
 
-                {/* Processing log */}
-                {stats.processingLog.length > 0 && (
-                  <details className="rounded-xl border border-border overflow-hidden text-xs font-mono">
-                    <summary className="bg-surface-2 px-3 py-2 cursor-pointer text-text-secondary font-semibold">
-                      🔍 Log de procesamiento ({stats.processingLog.length} entradas)
-                    </summary>
-                    <div className="px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto">
-                      {stats.processingLog.map((line, i) => (
-                        <p key={i} className={`text-[10px] leading-relaxed ${
-                          line.includes('[ERROR]') ? 'text-error' :
-                          line.includes('[WARN]')  ? 'text-warning' : 'text-text-muted'
-                        }`}>{line}</p>
-                      ))}
-                    </div>
-                  </details>
-                )}
+            {/* Debug Viewer modal */}
+            {debug && audit && (
+              <DebugViewer
+                debug={debug}
+                audit={audit}
+                isOpen={isDebugOpen}
+                onClose={() => setIsDebugOpen(false)}
+              />
+            )}
+          </motion.div>
+
+        /* ── DISCREPANCY ──────────────────────────────────────── */
+        ) : status === 'discrepancy' ? (
+          <motion.div key="discrepancy" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-4">
+            <div className="card text-center py-10">
+              <div className="w-16 h-16 bg-warning/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-8 h-8 text-warning" />
               </div>
+              <h3 className="text-text-primary font-semibold text-lg mb-1">Reporte importado con advertencia</h3>
+              <p className="text-text-muted text-sm mb-3">Los datos se guardaron, pero se detectó una discrepancia en los totales.</p>
+              {audit?.discrepancyNote && (
+                <p className="text-warning text-xs bg-warning/5 border border-warning/20 rounded-xl px-4 py-2 mx-auto max-w-sm mb-6">
+                  {audit.discrepancyNote}
+                </p>
+              )}
+              <div className="flex gap-3 justify-center">
+                <button onClick={reset} className="btn-secondary">Subir otro</button>
+                <button onClick={() => setIsDebugOpen(true)} className="btn-primary">Ver Auditoría</button>
+              </div>
+            </div>
+
+            {stats && audit && (
+              <AuditSummary
+                audit={audit}
+                stats={stats}
+                onViewAudit={() => setIsDebugOpen(true)}
+                onViewAnalysis={() => navigate(`/reports/${reportId}`)}
+              />
+            )}
+
+            {/* Processing log */}
+            {stats && stats.processingLog.length > 0 && (
+              <details className="rounded-xl border border-border overflow-hidden text-xs font-mono">
+                <summary className="bg-surface-2 px-3 py-2 cursor-pointer text-text-secondary font-semibold">
+                  🔍 Log de procesamiento ({stats.processingLog.length} entradas)
+                </summary>
+                <div className="px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto">
+                  {stats.processingLog.map((line, i) => (
+                    <p key={i} className={`text-[10px] leading-relaxed ${
+                      line.includes('[ERROR]') ? 'text-error' :
+                      line.includes('[WARN]')  ? 'text-warning' : 'text-text-muted'
+                    }`}>{line}</p>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* Debug Viewer modal */}
+            {debug && audit && (
+              <DebugViewer
+                debug={debug}
+                audit={audit}
+                isOpen={isDebugOpen}
+                onClose={() => setIsDebugOpen(false)}
+              />
             )}
           </motion.div>
 

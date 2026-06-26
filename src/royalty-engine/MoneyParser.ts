@@ -3,7 +3,12 @@ export function parseMoney(raw: string | number): number {
   if (typeof raw === 'number') return raw
   if (!raw) return 0
   let s = raw.toString().trim()
-  s = s.replace(/[$€£¥₩₹USDEURCOP GBP]/g, '').trim()
+  // Strip multi-char currency codes: at start of string (with optional space),
+  // or surrounded by word boundaries. Handles both "MXN 123.45" and "MXN123.45".
+  s = s.replace(/^(USD|EUR|COP|GBP|MXN|BRL|CHF|SEK|NOK|DKK|CAD|AUD|JPY)\s*/gi, '').trim()
+  s = s.replace(/\b(USD|EUR|COP|GBP|MXN|BRL|CHF|SEK|NOK|DKK|CAD|AUD|JPY)\b/gi, '').trim()
+  // Strip single-char currency symbols
+  s = s.replace(/[$€£¥₩₹]/g, '').trim()
   s = s.replace(/^\(([^)]+)\)$/, '-$1') // (123.45) → -123.45
   if (s === '' || s === '-') return 0
   const hasDot = s.includes('.')

@@ -4,6 +4,7 @@
  */
 import { ALIAS_DICTIONARY } from './AliasDictionary'
 import { normalizeHeader } from './HeaderNormalizer'
+import type { Logger } from './Logger'
 
 // All known normalized aliases flattened into a set for fast lookup
 const ALL_ALIASES = new Set<string>()
@@ -29,13 +30,16 @@ function scoreRow(row: string[]): number {
   return score
 }
 
-export function findHeaderRow(rows: string[][]): number {
+export function findHeaderRow(rows: string[][], logger?: Logger): number {
   // First: look for 2+ strong markers
   for (let i = 0; i < Math.min(rows.length, 40); i++) {
     const row = rows[i]
     if (!row || row.length < 3) continue
     const strongHits = row.filter(c => STRONG_MARKERS.has(normalizeHeader((c ?? '').toString()))).length
-    if (strongHits >= 2) return i
+    if (strongHits >= 2) {
+      logger?.info(`Header encontrado en fila ${i}`)
+      return i
+    }
   }
   // Fallback: highest score
   let bestIdx = 0, bestScore = 0
@@ -44,6 +48,11 @@ export function findHeaderRow(rows: string[][]): number {
     if (!row || row.length < 2) continue
     const s = scoreRow(row)
     if (s > bestScore) { bestScore = s; bestIdx = i }
+  }
+  if (bestScore === 0) {
+    logger?.warn('No se encontró header, usando fila 0')
+  } else {
+    logger?.info(`Header encontrado en fila ${bestIdx}`)
   }
   return bestIdx
 }

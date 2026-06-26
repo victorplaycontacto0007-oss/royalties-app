@@ -118,6 +118,24 @@ export type Report = Database['public']['Tables']['reports']['Row']
 export type RoyaltyRecord = Database['public']['Tables']['royalty_records']['Row']
 export type ActivityLog = Database['public']['Tables']['activity_logs']['Row']
 
+// V2 — extends Report with audit/financial fields added by royalty-engine-v2
+// The base Report type is left unchanged for backward compatibility.
+export interface ReportV2 extends Report {
+  provider:         string | null
+  currency:         string
+  net_total:        number
+  gross_total:      number
+  taxes:            number
+  channel_costs:    number
+  other_costs:      number
+  audit_status:     'pending' | 'valid' | 'discrepancy' | 'error'
+  discrepancy_note: string | null
+  processing_ms:    number
+  reported_month:   string | null
+  total_columns:    number
+  error_rows:       number
+}
+
 // Subscription
 export type SubscriptionPlan = 'daily' | 'monthly' | 'quarterly' | 'annual'
 export type SubscriptionStatus = 'active' | 'expired' | 'cancelled'

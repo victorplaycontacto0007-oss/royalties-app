@@ -684,7 +684,7 @@ function detectReportYearFromText(text: string): string | null {
 // ============================================================
 export async function parseDistroKidFile(file: File): Promise<RoyaltyRow[]> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-  if (['xlsx', 'xls'].includes(ext)) return parseExcel(file)
+  if (['xlsx', 'xls'].includes(ext)) return (await parseExcel(file)).rows
   return parseDelimited(file)
 }
 
@@ -844,7 +844,7 @@ async function parseExcel(file: File, reportPeriod?: string, selectedRawPeriods?
     if (t.length > textRows.length) { textRows = t; numRows = n }
   }
 
-  if (textRows.length < 2) return []
+  if (textRows.length < 2) return { rows: [], normLogs: [] }
 
   const headerIdx = findHeaderRow(textRows)
   const colMap    = mapHeaders(textRows[headerIdx])

@@ -39,9 +39,15 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     // TuneCore / CD Baby
     'netrevenue', 'netearnings', 'netamount', 'netincome',
     'netpayout', 'paidusd', 'paid',
+    // CD Baby — net_payable
+    'netpayable',
     // Believe / FUGA
     'royaltyamountusd', 'royaltyamount', 'totalroyalty', 'netroyalty',
     'royaltyusd', 'royalty',
+    // YouTube Content ID
+    'partnerrevenue',
+    // Spotify / generic
+    'revenue',
     // SoundOn
     'finalroyalty',
     // Global Sound Stars / label reports
@@ -54,7 +60,7 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
   gross_total: [
     'grosstotal', 'gross_total',
     'grossrevenue', 'grossearnings', 'grossamount', 'grossincome',
-    'currencygrosstotal',
+    // NOTE: 'currencygrosstotal' removed — matches Ditto's gross_total_client_currency incorrectly
     'gross',
   ],
   taxes: [
@@ -75,7 +81,9 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'paymentcurrency', 'reportingcurrency',
   ],
   currency_net_total: [
-    'nettotalclientcurrency', 'currencynettotal', 'currencynet',
+    'nettotalclientcurrency',
+    'currencynettotal',
+    'currencynet',
     'localnet', 'localamount', 'localcurrencyamount',
   ],
   artist: [
@@ -105,6 +113,8 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'musicservice', 'streamingservice', 'retailer', 'outlet',
     // Ditto uses "channel"
     'channel',
+    // YouTube Content ID
+    'contenttype',
     'store', 'platform', 'dsp', 'service',
     'distributor', 'provider', 'source', 'vendor',
   ],
@@ -121,6 +131,8 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'downloads',
     // Ditto uses "units" (NOT unit_price)
     'units',
+    // YouTube Content ID
+    'partnerstreams',
     'quantity', 'streams', 'plays',
   ],
   sale_period: [
@@ -135,18 +147,24 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
 }
 
 /**
- * Columns that should NEVER be mapped as net_total or any earning field.
+ * Columns that should NEVER be mapped as net_total or gross_total.
  * Matched after normalization.
+ * NOTE: 'isrc', 'upc', 'barcode' intentionally removed — they are valid target fields.
+ * Ditto client-currency columns are excluded from primary money field mapping.
  */
 export const EXCLUDED_COLUMNS = new Set([
-  'unitprice', 'unit_price', 'price', 'rate',
-  'royaltybasis', 'royalty_basis',
-  'taxrate', 'tax_rate',
-  'sharepercentage', 'share_percentage', 'percentage',
-  'currencyrate', 'currency_rate', 'exchangerate', 'exchange_rate',
-  'transactiontype', 'transaction_type',
-  'isrc', 'upc', 'barcode',
+  'unitprice', 'price', 'rate',
+  'royaltybasis',
+  'taxrate',
+  'sharepercentage', 'percentage',
+  'currencyrate', 'exchangerate',
+  'transactiontype',
   'projectcode', 'productcode', 'labelcode',
-  'tenantid', 'tenant_id',
+  'tenantid',
   'id',
+  // Ditto client-currency variants — must never override the primary USD columns
+  'grosstotalclientcurrency',
+  'channelcostsclientcurrency',
+  'othercostsclientcurrency',
+  // NOTE: nettotalclientcurrency is allowed as currency_net_total but excluded from net_total match
 ])
