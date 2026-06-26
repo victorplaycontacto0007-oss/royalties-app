@@ -11,6 +11,7 @@ import ContractsPage from './pages/ContractsPage'
 import SubscriptionPage from './pages/SubscriptionPage'
 import RenewalPage from './pages/RenewalPage'
 import ProfilePage from './pages/ProfilePage'
+import LandingPage from './pages/LandingPage'
 import Layout from './components/Layout'
 
 const Spinner = () => (
@@ -58,7 +59,7 @@ export default function App() {
         <Route path="/login"          element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/subscription"   element={<SubscriptionPage />} />
-        <Route path="/"               element={<Navigate to="/dashboard" replace />} />
+        <Route path="/"               element={<LandingPage />} />
 
         {/* Protected */}
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>

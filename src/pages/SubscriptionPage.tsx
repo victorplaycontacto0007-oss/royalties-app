@@ -17,8 +17,9 @@ const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hos
 const PAYPAL_SANDBOX_ID = import.meta.env.VITE_PAYPAL_SANDBOX_ID ?? 'sb'
 const EFFECTIVE_PAYPAL_ID = IS_LOCAL ? PAYPAL_SANDBOX_ID : PAYPAL_CLIENT_ID
 
+// ── Plan type (derived from Supabase `plans` table) ───────────────────────
 export interface Plan {
-  id: 'daily' | 'monthly' | 'quarterly' | 'annual'
+  id: string          // slug: 'daily' | 'monthly' | 'quarterly' | 'annual'
   label: string
   price: number
   days: number
@@ -28,46 +29,28 @@ export interface Plan {
   gradient: string
 }
 
-export const PLANS: Plan[] = [
-  {
-    id: 'daily',
-    label: 'Plan Diario',
-    price: 3,
-    days: 1,
-    icon: <Zap className="w-6 h-6" />,
-    color: 'text-yellow-400',
-    gradient: 'from-yellow-500/20 to-orange-500/20',
-  },
-  {
-    id: 'monthly',
-    label: 'Plan Mensual',
-    price: 10,
-    days: 30,
-    icon: <Star className="w-6 h-6" />,
-    badge: 'Popular',
-    color: 'text-primary',
-    gradient: 'from-primary/20 to-violet-500/20',
-  },
-  {
-    id: 'quarterly',
-    label: 'Plan Trimestral',
-    price: 25,
-    days: 90,
-    icon: <Crown className="w-6 h-6" />,
-    color: 'text-cyan-400',
-    gradient: 'from-cyan-500/20 to-blue-500/20',
-  },
-  {
-    id: 'annual',
-    label: 'Plan Anual',
-    price: 75,
-    days: 365,
-    icon: <Sparkles className="w-6 h-6" />,
-    badge: 'Mejor precio',
-    color: 'text-emerald-400',
-    gradient: 'from-emerald-500/20 to-teal-500/20',
-  },
-]
+// Static visual metadata keyed by slug — never contains pricing
+const PLAN_VISUAL: Record<string, Omit<Plan, 'id' | 'label' | 'price' | 'days' | 'badge'>> = {
+  daily:     { icon: <Zap className="w-6 h-6" />,      color: 'text-yellow-400', gradient: 'from-yellow-500/20 to-orange-500/20' },
+  monthly:   { icon: <Star className="w-6 h-6" />,     color: 'text-primary',    gradient: 'from-primary/20 to-violet-500/20'   },
+  quarterly: { icon: <Crown className="w-6 h-6" />,    color: 'text-cyan-400',   gradient: 'from-cyan-500/20 to-blue-500/20'    },
+  annual:    { icon: <Sparkles className="w-6 h-6" />, color: 'text-emerald-400',gradient: 'from-emerald-500/20 to-teal-500/20' },
+}
+
+function mapRowToPlan(row: {
+  id: string; name: string; slug: string; price: number;
+  duration_days: number; badge: string | null
+}): Plan {
+  const visual = PLAN_VISUAL[row.slug] ?? PLAN_VISUAL['monthly']
+  return {
+    id:     row.slug,
+    label:  `Plan ${row.name}`,
+    price:  row.price,
+    days:   row.duration_days,
+    badge:  row.badge ?? undefined,
+    ...visual,
+  }
+}
 
 const FEATURES = [
   'Dashboard de regalías completo',
@@ -84,11 +67,29 @@ export default function SubscriptionPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  const [selected, setSelected] = useState<Plan>(PLANS[1])
+  const [plans, setPlans]       = useState<Plan[]>([])
+  const [plansLoading, setPlansLoading] = useState(true)
+  const [selected, setSelected] = useState<Plan | null>(null)
   const [paypalReady, setPaypalReady] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
+
+  // Load plans from Supabase
+  useEffect(() => {
+    db.from('plans')
+      .select('id,name,slug,price,currency,duration_days,badge,display_order')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .then(({ data }: { data: Array<{id:string;name:string;slug:string;price:number;currency:string;duration_days:number;badge:string|null;display_order:number}> | null }) => {
+        const mapped = (data ?? []).map(mapRowToPlan)
+        setPlans(mapped)
+        // Default to 'monthly' if available, otherwise first plan
+        const defaultPlan = mapped.find(p => p.id === 'monthly') ?? mapped[0] ?? null
+        setSelected(defaultPlan)
+        setPlansLoading(false)
+      })
+  }, [])
 
   // If already has active subscription, redirect to dashboard
   useEffect(() => {
@@ -109,7 +110,7 @@ export default function SubscriptionPage() {
 
   // Render PayPal button whenever plan or readiness changes
   useEffect(() => {
-    if (!paypalReady || !(window as any).paypal) return
+    if (!paypalReady || !(window as any).paypal || !selected) return
     const container = document.getElementById('paypal-button-container')
     if (!container) return
     container.innerHTML = ''
@@ -117,11 +118,20 @@ export default function SubscriptionPage() {
     ;(window as any).paypal.Buttons({
       style: { layout: 'vertical', color: 'gold', shape: 'pill', label: 'pay', height: 48 },
 
-      createOrder: (_data: any, actions: any) => {
+      createOrder: async (_data: any, actions: any) => {
+        // Always fetch fresh price from Supabase before creating the order
+        const { data: freshPlan } = await db
+          .from('plans')
+          .select('price,name')
+          .eq('slug', selected.id)
+          .eq('is_active', true)
+          .single()
+        const livePrice = freshPlan?.price ?? selected.price
+        const liveName  = freshPlan?.name  ?? selected.label
         return actions.order.create({
           purchase_units: [{
-            amount: { value: selected.price.toFixed(2), currency_code: 'USD' },
-            description: `Royalties App — ${selected.label}`,
+            amount: { value: livePrice.toFixed(2), currency_code: 'USD' },
+            description: `Royalties App — Plan ${liveName}`,
           }],
         })
       },
@@ -148,20 +158,29 @@ export default function SubscriptionPage() {
   }, [paypalReady, selected, user])
 
   const activateSubscription = async (paypalOrderId: string) => {
-    if (!user) throw new Error('No autenticado')
+    if (!user || !selected) throw new Error('No autenticado o plan no seleccionado')
+
+    // Fetch latest price from Supabase — never trust frontend-stored price
+    const { data: freshPlan, error: planErr } = await db
+      .from('plans')
+      .select('price,duration_days,slug')
+      .eq('slug', selected.id)
+      .eq('is_active', true)
+      .single()
+    if (planErr || !freshPlan) throw new Error('Plan no encontrado')
 
     const now = new Date()
     const expiresAt = new Date(now)
-    expiresAt.setDate(expiresAt.getDate() + selected.days)
+    expiresAt.setDate(expiresAt.getDate() + freshPlan.duration_days)
 
     const { error: insErr } = await db.from('subscriptions').insert({
-      user_id:        user.id,
-      plan:           selected.id,
-      status:         'active',
-      started_at:     now.toISOString(),
-      expires_at:     expiresAt.toISOString(),
+      user_id:         user.id,
+      plan:            freshPlan.slug,
+      status:          'active',
+      started_at:      now.toISOString(),
+      expires_at:      expiresAt.toISOString(),
       paypal_order_id: paypalOrderId,
-      amount_usd:     selected.price,
+      amount_usd:      freshPlan.price,
     })
 
     if (insErr) throw new Error(insErr.message)
@@ -183,6 +202,14 @@ export default function SubscriptionPage() {
         <h2 className="text-3xl font-bold text-white mb-2">¡Suscripción activada!</h2>
         <p className="text-white/60">Redirigiendo al dashboard...</p>
       </motion.div>
+    </div>
+  )
+
+  // Show spinner while plans load
+  if (plansLoading || !selected) return (
+    <div className="min-h-screen flex items-center justify-center"
+      style={{ background: 'linear-gradient(135deg, #0f0c29 0%, #1a1040 40%, #0d1b3e 100%)' }}>
+      <Loader2 className="w-8 h-8 text-primary animate-spin" />
     </div>
   )
 
@@ -231,7 +258,7 @@ export default function SubscriptionPage() {
           {/* Plans grid */}
           <div className="lg:col-span-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              {PLANS.map(plan => (
+              {plans.map(plan => (
                 <motion.button
                   key={plan.id}
                   whileHover={{ scale: 1.02 }}

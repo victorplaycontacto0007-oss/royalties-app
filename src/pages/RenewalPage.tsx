@@ -1,14 +1,38 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { Music2, Clock, RefreshCw } from 'lucide-react'
+import { Music2, Clock, RefreshCw, Zap, Star, Crown, Sparkles } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { PLANS } from './SubscriptionPage'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { supabase } from '../lib/supabase'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any
+
+const PLAN_VISUAL: Record<string, { icon: React.ReactNode; color: string }> = {
+  daily:     { icon: <Zap className="w-5 h-5" />,      color: 'text-yellow-400' },
+  monthly:   { icon: <Star className="w-5 h-5" />,     color: 'text-indigo-400' },
+  quarterly: { icon: <Crown className="w-5 h-5" />,    color: 'text-cyan-400'   },
+  annual:    { icon: <Sparkles className="w-5 h-5" />, color: 'text-emerald-400'},
+}
+
+interface PlanRow {
+  id: string; name: string; slug: string; price: number; duration_days: number
+}
 
 export default function RenewalPage() {
   const { subscription, signOut } = useAuth()
   const navigate = useNavigate()
+  const [plans, setPlans] = useState<PlanRow[]>([])
+
+  useEffect(() => {
+    db.from('plans')
+      .select('id,name,slug,price,duration_days')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .then(({ data }: { data: PlanRow[] | null }) => setPlans(data ?? []))
+  }, [])
 
   const expiredAt = subscription?.expires_at
     ? formatDistanceToNow(new Date(subscription.expires_at), { addSuffix: true, locale: es })
@@ -56,23 +80,26 @@ export default function RenewalPage() {
 
         {/* Plans */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-          {PLANS.map((plan, i) => (
-            <motion.button
-              key={plan.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.08 }}
-              onClick={() => navigate(`/subscription?renew=1`)}
-              className="rounded-xl p-4 text-left border border-white/10 hover:border-primary/50 transition-all"
-              style={{ background: 'rgba(255,255,255,0.04)' }}>
-              <div className={`mb-2 ${plan.color}`}>{plan.icon}</div>
-              <p className="text-white text-sm font-semibold">{plan.label}</p>
-              <p className="text-white font-bold">${plan.price}</p>
-              <p className="text-white/40 text-xs mt-1">
-                {plan.days === 1 ? '1 día' : `${plan.days} días`}
-              </p>
-            </motion.button>
-          ))}
+          {plans.map((plan, i) => {
+            const visual = PLAN_VISUAL[plan.slug] ?? PLAN_VISUAL['monthly']
+            return (
+              <motion.button
+                key={plan.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.08 }}
+                onClick={() => navigate(`/subscription?renew=1`)}
+                className="rounded-xl p-4 text-left border border-white/10 hover:border-primary/50 transition-all"
+                style={{ background: 'rgba(255,255,255,0.04)' }}>
+                <div className={`mb-2 ${visual.color}`}>{visual.icon}</div>
+                <p className="text-white text-sm font-semibold">Plan {plan.name}</p>
+                <p className="text-white font-bold">${plan.price}</p>
+                <p className="text-white/40 text-xs mt-1">
+                  {plan.duration_days === 1 ? '1 día' : `${plan.duration_days} días`}
+                </p>
+              </motion.button>
+            )
+          })}
         </div>
 
         <button
