@@ -21,6 +21,7 @@ export type CanonicalField =
   | 'country'
   | 'quantity'
   | 'sale_period'
+  | 'transaction_type'
 
 /**
  * Each canonical field maps to a list of known aliases.
@@ -147,6 +148,24 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'startdate', 'start_date',
     'period', 'month', 'date',
   ],
+  transaction_type: [
+    // The Orchard aliases (spaced variants)
+    'transaction type',
+    'usage type',
+    'stream type',
+    'subscription type',
+    'transaction type description',
+    'play type',
+    'stream category',
+    // Normalized (no-space) variants
+    'transactiontype',
+    'usagetype',
+    'streamtype',
+    'subscriptiontype',
+    'transactiontypedescription',
+    'playtype',
+    'streamcategory',
+  ],
 }
 
 /**
@@ -161,7 +180,6 @@ export const EXCLUDED_COLUMNS = new Set([
   'taxrate',
   'sharepercentage', 'percentage',
   'currencyrate', 'exchangerate',
-  'transactiontype',
   'projectcode', 'productcode', 'labelcode',
   'tenantid',
   'id',

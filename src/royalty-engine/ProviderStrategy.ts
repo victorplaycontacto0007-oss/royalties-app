@@ -31,6 +31,7 @@ export type ProviderName =
   | 'RouteNote'
   | 'Too Lost'
   | 'Amuse'
+  | 'The Orchard'
   | 'Spotify Direct'       // renamed from 'Spotify'
   | 'Apple Music Reports'  // renamed from 'Apple Music'
   | 'Amazon Music Reports' // renamed from 'Amazon Music'
@@ -101,6 +102,8 @@ export const PROVIDER_STRATEGIES: Record<string, ProviderStrategyEntry> = {
                             earningsCandidates: ['netrevenue', 'royalty'] },
   'Amuse':                { paymentColumn: 'net_revenue',               defaultCurrency: 'USD',
                             earningsCandidates: ['netrevenue'] },
+  'The Orchard':          { paymentColumn: 'net_revenue',               defaultCurrency: 'USD',
+                            earningsCandidates: ['netrevenue', 'revenue', 'royalty', 'amount'] },
   'Spotify Direct':       { paymentColumn: 'royalties',                 defaultCurrency: 'USD',
                             earningsCandidates: ['royalty', 'revenue'] },
   'Apple Music Reports':  { paymentColumn: 'royalty',                   defaultCurrency: 'USD',

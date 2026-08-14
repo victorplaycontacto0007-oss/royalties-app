@@ -35,6 +35,7 @@ const BASE_COL_MAP: ColumnIndex = {
   other_costs: 13,
   currency: 14,
   currency_net_total: null,
+  transaction_type: null,
 }
 
 const EXPECTED_COL_COUNT = 15
