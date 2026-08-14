@@ -84,11 +84,32 @@ const EMPTY_FILTERS: FilterState = {
   rawStreamType:        null,
 }
 
+// ─── LocalStorage key ─────────────────────────────────────────────────────────
+const STORAGE_KEY = 'orchard_records_v1'
+
+function loadStoredRecords(): OrchardRecord[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    return JSON.parse(raw) as OrchardRecord[]
+  } catch {
+    return []
+  }
+}
+
+function saveRecords(records: OrchardRecord[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  } catch {
+    // storage quota exceeded — silently ignore
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function OrchardReportPage() {
-  // ── Core state ─────────────────────────────────────────────────────────────
-  const [records,   setRecords]   = useState<OrchardRecord[]>([])
+  // ── Core state — initialize from localStorage ──────────────────────────────
+  const [records,   setRecords]   = useState<OrchardRecord[]>(() => loadStoredRecords())
   const [filters,   setFilters]   = useState<FilterState>(EMPTY_FILTERS)
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const [drillDown, setDrillDown] = useState<{
@@ -96,9 +117,20 @@ export default function OrchardReportPage() {
     label: string
   } | null>(null)
 
-  // ── Upload handler — APPENDS records (design constraint 5) ────────────────
+  // ── Upload handler — APPENDS records + persists to localStorage ───────────
   const handleRecordsLoaded = useCallback((newRecords: OrchardRecord[]) => {
-    setRecords(prev => [...prev, ...newRecords])
+    setRecords(prev => {
+      const next = [...prev, ...newRecords]
+      saveRecords(next)
+      return next
+    })
+  }, [])
+
+  // ── Clear all records ──────────────────────────────────────────────────────
+  const handleClearRecords = useCallback(() => {
+    setRecords([])
+    setFilters(EMPTY_FILTERS)
+    localStorage.removeItem(STORAGE_KEY)
   }, [])
 
   // ── onMetricClick — passed to all tabs; opens the drill-down drawer ────────
@@ -200,9 +232,9 @@ export default function OrchardReportPage() {
     <div className="min-h-full flex flex-col bg-white">
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="px-6 pt-6 pb-4 border-b border-border flex items-center justify-between flex-wrap gap-3">
+      <div className="px-4 pt-4 pb-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-xl font-bold text-text-primary">Orchard Report Analyzer</h1>
+          <h1 className="text-base font-bold text-text-primary">Orchard Report Analyzer</h1>
           <p className="text-text-muted text-xs mt-0.5">
             {records.length.toLocaleString()} registros importados
             {filteredRecords.length !== records.length && (
@@ -213,8 +245,18 @@ export default function OrchardReportPage() {
           </p>
         </div>
 
-        {/* "Add more files" — available even when loaded */}
-        <OrchardUploadPanel onRecordsLoaded={handleRecordsLoaded} />
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Clear all button */}
+          <button
+            onClick={handleClearRecords}
+            className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+            title="Limpiar todos los reportes cargados"
+          >
+            Limpiar
+          </button>
+          {/* "Add more files" — available even when loaded */}
+          <OrchardUploadPanel onRecordsLoaded={handleRecordsLoaded} />
+        </div>
       </div>
 
       {/* ── Filter bar — only rendered when at least one filter is active ── */}
@@ -248,8 +290,8 @@ export default function OrchardReportPage() {
       </div>
 
       {/* ── Tab content ──────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-6 py-6">
+      <div className="flex-1 overflow-auto">
+        <div className="px-4 py-4 min-w-0">
           {activeTab === 'dashboard' && (
             <OrchardDashboardTab
               breakdown={breakdown}

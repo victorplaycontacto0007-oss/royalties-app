@@ -138,7 +138,7 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto bg-white">
+      <main className="flex-1 overflow-auto min-w-0 bg-white">
         <motion.div
           key={location.pathname}
           initial={{ opacity: 0, y: 6 }}
