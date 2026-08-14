@@ -199,26 +199,27 @@ import type { RUPEResult, ParsedRow } from '../UniversalParser'
 /** Minimal ParsedRow fixture — all numeric fields default to 0, strings to '' */
 function makeRow(overrides: Partial<ParsedRow> = {}): ParsedRow {
   return {
-    net_total:     0,
-    gross_total:   0,
-    taxes:         0,
-    channel_costs: 0,
-    other_costs:   0,
-    currency:      'USD',
-    artist:        'Test Artist',
-    track:         'Test Track',
-    album:         'Test Album',
-    upc:           '000000000000',
-    isrc:          'AA0000000000',
-    platform:      'Spotify',
-    country:       'US',
-    quantity:      100,
-    sale_period:   '2024-01',
-    artist_name:   'Test Artist',
-    song_title:    'Test Track',
-    album_name:    'Test Album',
-    store:         'Spotify',
-    earnings_usd:  1.23,
+    net_total:        0,
+    gross_total:      0,
+    taxes:            0,
+    channel_costs:    0,
+    other_costs:      0,
+    currency:         'USD',
+    artist:           'Test Artist',
+    track:            'Test Track',
+    album:            'Test Album',
+    upc:              '000000000000',
+    isrc:             'AA0000000000',
+    platform:         'Spotify',
+    country:          'US',
+    quantity:         100,
+    sale_period:      '2024-01',
+    artist_name:      'Test Artist',
+    song_title:       'Test Track',
+    album_name:       'Test Album',
+    store:            'Spotify',
+    earnings_usd:     1.23,
+    transaction_type: '',
     ...overrides,
   }
 }
@@ -243,13 +244,8 @@ describe('toOrchardRecords()', () => {
   it('assigns rowIndex = i + 2 (1-based, accounts for header row)', () => {
     const rows = [makeRow(), makeRow(), makeRow()]
     const result = makeRUPEResult(rows)
-    const rawRows = [
-      ['Subscription Audio Streams'],
-      ['Ad-Supported Audio Streams'],
-      ['Free Trial'],
-    ]
 
-    const records = toOrchardRecords(result, rawRows, 0, 'test.tsv')
+    const records = toOrchardRecords(result, [], null, 'test.tsv')
 
     expect(records[0].rowIndex).toBe(2) // row 0 in data → file row 2
     expect(records[1].rowIndex).toBe(3)
@@ -258,54 +254,47 @@ describe('toOrchardRecords()', () => {
 
   it('assigns sourceFile from fileName argument', () => {
     const result = makeRUPEResult([makeRow()])
-    const rawRows = [['Subscription Audio Streams']]
 
-    const records = toOrchardRecords(result, rawRows, 0, 'orchard-2024-01.tsv')
+    const records = toOrchardRecords(result, [], null, 'orchard-2024-01.tsv')
 
     expect(records[0].sourceFile).toBe('orchard-2024-01.tsv')
   })
 
-  it('preserves rawStreamType exactly as it appears in the raw row (no transformation)', () => {
-    const result = makeRUPEResult([makeRow()])
-    const rawRows = [['  Subscription Audio Streams  ']]
+  it('preserves rawStreamType exactly as it appears in the ParsedRow.transaction_type field', () => {
+    const result = makeRUPEResult([makeRow({ transaction_type: 'Subscription Audio Streams' })])
 
-    // The value is trimmed during extraction but the literal cell content is preserved
-    const records = toOrchardRecords(result, rawRows, 0, 'test.tsv')
+    const records = toOrchardRecords(result, [], null, 'test.tsv')
 
-    // rawStreamType should be the trimmed value (toString().trim() is applied)
     expect(records[0].rawStreamType).toBe('Subscription Audio Streams')
   })
 
-  it('sets rawStreamType to "" when transactionTypeColIdx is null', () => {
-    const result = makeRUPEResult([makeRow()])
-    const rawRows = [['some', 'other', 'cols']]
+  it('sets rawStreamType to "" when transaction_type is empty', () => {
+    const result = makeRUPEResult([makeRow({ transaction_type: '' })])
 
-    const records = toOrchardRecords(result, rawRows, null, 'test.tsv')
+    const records = toOrchardRecords(result, [], null, 'test.tsv')
 
     expect(records[0].rawStreamType).toBe('')
   })
 
-  it('sets normalizedStreamType to UNKNOWN when transactionTypeColIdx is null', () => {
-    const result = makeRUPEResult([makeRow()])
-    const rawRows = [['some', 'other', 'cols']]
+  it('sets normalizedStreamType to UNKNOWN when transaction_type is empty', () => {
+    const result = makeRUPEResult([makeRow({ transaction_type: '' })])
 
-    const records = toOrchardRecords(result, rawRows, null, 'test.tsv')
+    const records = toOrchardRecords(result, [], null, 'test.tsv')
 
     expect(records[0].normalizedStreamType).toBe('UNKNOWN')
   })
 
   it('classifies rawStreamType correctly for each row', () => {
-    const rows = [makeRow(), makeRow(), makeRow(), makeRow(), makeRow()]
-    const result = makeRUPEResult(rows)
-    const rawRows = [
-      ['Subscription Audio Streams'],  // → FULL_PAY
-      ['Ad-Supported Audio Streams'],  // → FREE_AD_SUPPORTED
-      ['Free Trial'],                  // → FREE_TRIAL
-      ['Unqualified Audio Streams'],   // → UNQUALIFIED
-      ['Fraudulent Streams'],          // → FRAUDULENT
+    const rows = [
+      makeRow({ transaction_type: 'Subscription Audio Streams' }),  // → FULL_PAY
+      makeRow({ transaction_type: 'Ad-Supported Audio Streams' }),  // → FREE_AD_SUPPORTED
+      makeRow({ transaction_type: 'Free Trial' }),                  // → FREE_TRIAL
+      makeRow({ transaction_type: 'Unqualified Audio Streams' }),   // → UNQUALIFIED
+      makeRow({ transaction_type: 'Fraudulent Streams' }),          // → FRAUDULENT
     ]
+    const result = makeRUPEResult(rows)
 
-    const records = toOrchardRecords(result, rawRows, 0, 'test.tsv')
+    const records = toOrchardRecords(result, [], null, 'test.tsv')
 
     expect(records[0].normalizedStreamType).toBe('FULL_PAY')
     expect(records[1].normalizedStreamType).toBe('FREE_AD_SUPPORTED')
@@ -315,14 +304,13 @@ describe('toOrchardRecords()', () => {
   })
 
   it('handles UNKNOWN and OTHER categories', () => {
-    const rows = [makeRow(), makeRow()]
-    const result = makeRUPEResult(rows)
-    const rawRows = [
-      [''],                 // → UNKNOWN (empty string)
-      ['digital download'], // → OTHER (unrecognized value)
+    const rows = [
+      makeRow({ transaction_type: '' }),                // → UNKNOWN (empty string)
+      makeRow({ transaction_type: 'digital download' }), // → OTHER (unrecognized value)
     ]
+    const result = makeRUPEResult(rows)
 
-    const records = toOrchardRecords(result, rawRows, 0, 'test.tsv')
+    const records = toOrchardRecords(result, [], null, 'test.tsv')
 
     expect(records[0].normalizedStreamType).toBe('UNKNOWN')
     expect(records[1].normalizedStreamType).toBe('OTHER')
@@ -339,9 +327,8 @@ describe('toOrchardRecords()', () => {
       sale_period: '2024-03',
     })
     const result = makeRUPEResult([row])
-    const rawRows = [['Premium']]
 
-    const [rec] = toOrchardRecords(result, rawRows, 0, 'test.tsv')
+    const [rec] = toOrchardRecords(result, [], null, 'test.tsv')
 
     expect(rec.net_total).toBe(4.56)
     expect(rec.quantity).toBe(500)
@@ -354,31 +341,31 @@ describe('toOrchardRecords()', () => {
 
   it('returns empty array when result has no rows', () => {
     const result = makeRUPEResult([])
-    const records = toOrchardRecords(result, [], 0, 'empty.tsv')
+    const records = toOrchardRecords(result, [], null, 'empty.tsv')
     expect(records).toHaveLength(0)
   })
 
-  it('reads rawStreamType from the correct column index', () => {
-    const result = makeRUPEResult([makeRow()])
-    // Raw row has 3 columns; transaction_type is at index 2
-    const rawRows = [['Spotify', '2024-01', 'Ad-Supported Audio Streams']]
+  it('reads rawStreamType from ParsedRow.transaction_type (not from external rawRows)', () => {
+    const result = makeRUPEResult([makeRow({ transaction_type: 'Ad-Supported Audio Streams' })])
 
-    const records = toOrchardRecords(result, rawRows, 2, 'test.tsv')
+    // rawRows and transactionTypeColIdx are ignored — value comes from ParsedRow
+    const records = toOrchardRecords(result, [['Spotify', '2024-01', 'something else']], 2, 'test.tsv')
 
     expect(records[0].rawStreamType).toBe('Ad-Supported Audio Streams')
     expect(records[0].normalizedStreamType).toBe('FREE_AD_SUPPORTED')
   })
 
-  it('sets rawStreamType to "" when rawRows[i] is undefined', () => {
-    const rows = [makeRow(), makeRow()]
+  it('sets rawStreamType to "" when transaction_type is absent (empty string default)', () => {
+    const rows = [
+      makeRow({ transaction_type: 'Premium' }),
+      makeRow({ transaction_type: '' }), // no transaction type on second row
+    ]
     const result = makeRUPEResult(rows)
-    // Only one raw row provided, second is missing
-    const rawRows = [['Premium']]
 
-    const records = toOrchardRecords(result, rawRows, 0, 'test.tsv')
+    const records = toOrchardRecords(result, [], null, 'test.tsv')
 
     expect(records[0].rawStreamType).toBe('Premium')
-    expect(records[1].rawStreamType).toBe('') // missing raw row → ""
+    expect(records[1].rawStreamType).toBe('')
     expect(records[1].normalizedStreamType).toBe('UNKNOWN')
   })
 })

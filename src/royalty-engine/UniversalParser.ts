@@ -47,27 +47,30 @@ import {
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ParsedRow {
-  net_total:     number
-  gross_total:   number
-  taxes:         number
-  channel_costs: number
-  other_costs:   number
-  currency:      string
-  artist:        string
-  track:         string
-  album:         string
-  upc:           string
-  isrc:          string
-  platform:      string
-  country:       string
-  quantity:      number
-  sale_period:   string
+  net_total:        number
+  gross_total:      number
+  taxes:            number
+  channel_costs:    number
+  other_costs:      number
+  currency:         string
+  artist:           string
+  track:            string
+  album:            string
+  upc:              string
+  isrc:             string
+  platform:         string
+  country:          string
+  quantity:         number
+  sale_period:      string
   // For DB insert compatibility
-  artist_name:   string
-  song_title:    string
-  album_name:    string
-  store:         string
-  earnings_usd:  number
+  artist_name:      string
+  song_title:       string
+  album_name:       string
+  store:            string
+  earnings_usd:     number
+  /** Raw value of the transaction_type / usage_type column, preserved verbatim.
+   *  Empty string when the column is absent in the file. */
+  transaction_type: string
 }
 
 export interface RUPEResult {
@@ -160,27 +163,29 @@ function extractRow(
     const salePeriod = normalizePeriod(get(colMap.sale_period) || 'Unknown')
 
     const row: ParsedRow = {
-      net_total:     isNaN(net) ? 0 : net,
-      gross_total:   getN(colMap.gross_total),
-      taxes:         getN(colMap.taxes),
-      channel_costs: getN(colMap.channel_costs),
-      other_costs:   getN(colMap.other_costs),
-      currency:      get(colMap.currency) || currency,
-      artist:        get(colMap.artist) || 'Unknown',
-      track:         get(colMap.track)  || 'Unknown',
-      album:         get(colMap.album)  || '',
-      upc:           get(colMap.upc),
-      isrc:          get(colMap.isrc),
-      platform:      get(colMap.platform) || 'Unknown',
-      country:       expandCountryCode(rawCountry) || 'Unknown',
-      quantity:      isNaN(qty) ? 0 : qty,
-      sale_period:   salePeriod,
+      net_total:        isNaN(net) ? 0 : net,
+      gross_total:      getN(colMap.gross_total),
+      taxes:            getN(colMap.taxes),
+      channel_costs:    getN(colMap.channel_costs),
+      other_costs:      getN(colMap.other_costs),
+      currency:         get(colMap.currency) || currency,
+      artist:           get(colMap.artist) || 'Unknown',
+      track:            get(colMap.track)  || 'Unknown',
+      album:            get(colMap.album)  || '',
+      upc:              get(colMap.upc),
+      isrc:             get(colMap.isrc),
+      platform:         get(colMap.platform) || 'Unknown',
+      country:          expandCountryCode(rawCountry) || 'Unknown',
+      quantity:         isNaN(qty) ? 0 : qty,
+      sale_period:      salePeriod,
       // DB compatibility aliases
-      artist_name:   get(colMap.artist) || 'Unknown',
-      song_title:    get(colMap.track)  || 'Unknown',
-      album_name:    get(colMap.album)  || '',
-      store:         get(colMap.platform) || 'Unknown',
-      earnings_usd:  isNaN(net) ? 0 : net,
+      artist_name:      get(colMap.artist) || 'Unknown',
+      song_title:       get(colMap.track)  || 'Unknown',
+      album_name:       get(colMap.album)  || '',
+      store:            get(colMap.platform) || 'Unknown',
+      earnings_usd:     isNaN(net) ? 0 : net,
+      // Captured verbatim — used by StreamTypeClassifier to classify stream type
+      transaction_type: get(colMap.transaction_type),
     }
 
     if (row.net_total === 0 && row.quantity === 0) return null

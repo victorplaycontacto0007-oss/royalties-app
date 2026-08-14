@@ -181,29 +181,30 @@ export function classify(raw: string | null | undefined): StreamCategory {
 // ─── toOrchardRecords() ───────────────────────────────────────────────────────
 
 /**
- * Converts a RUPEResult + raw file rows into OrchardRecord[].
+ * Converts a RUPEResult into OrchardRecord[].
  *
- * For each ParsedRow at index i:
- *   - rowIndex = i + 2  (1-based, +1 for header row, +1 for 1-based index)
- *   - sourceFile = fileName
- *   - rawStreamType = raw cell from rawRows[i][transactionTypeColIdx], or "" if absent
- *   - normalizedStreamType = classify(rawStreamType)
- *   - All other fields copied from ParsedRow
+ * rawStreamType is read directly from ParsedRow.transaction_type, which is
+ * captured by UniversalParser at the exact moment each row is processed.
+ * This eliminates any row-alignment issues that would arise from trying to
+ * correlate result.rows[i] back to the original raw file rows after the fact
+ * (UniversalParser skips empty/invalid rows, making sequential index i unreliable).
+ *
+ * The allRawRows and headerIdx parameters are retained for backward compatibility
+ * with existing tests but are no longer used for rawStreamType extraction.
  *
  * Requirements: 1.1, 1.2, 1.5, 3.1–3.9
  */
 export function toOrchardRecords(
   result: RUPEResult,
-  rawRows: string[][],
-  transactionTypeColIdx: number | null,
+  _allRawRows: string[][],
+  _transactionTypeColIdx: number | null,
   fileName: string,
+  _headerIdx = 0,
 ): OrchardRecord[] {
   return result.rows.map((row: ParsedRow, i: number): OrchardRecord => {
-    // Extract raw stream type from original row (before any parsing/transformation)
-    const rawStreamType =
-      transactionTypeColIdx !== null && rawRows[i] != null
-        ? (rawRows[i][transactionTypeColIdx] ?? '').toString().trim()
-        : ''
+    // Read transaction_type directly from the ParsedRow — captured in-situ by
+    // UniversalParser, always aligned regardless of how many rows were skipped.
+    const rawStreamType = row.transaction_type ?? ''
 
     return {
       // Copy all ParsedRow fields
@@ -231,7 +232,7 @@ export function toOrchardRecords(
       // Orchard-specific fields
       rawStreamType,
       normalizedStreamType: classify(rawStreamType),
-      rowIndex:  i + 2,   // 1-based, header row is row 1
+      rowIndex:  i + 2,
       sourceFile: fileName,
     }
   })
@@ -349,8 +350,11 @@ export async function parseOrchardFile(file: File): Promise<{
     const result = await parseFile(file)
 
     // ── Step 5: Build OrchardRecord[] ─────────────────────────────────────
-    // dataRows are aligned to result.rows: result.rows[i] corresponds to dataRows[i]
-    const records = toOrchardRecords(result, dataRows, transactionTypeColIdx, file.name)
+    // Pass rawTextRows (complete, unfiltered) and headerIdx so toOrchardRecords
+    // can look up each record's raw stream type by absolute file row position.
+    // This is correct even when UniversalParser skips rows internally, because
+    // we anchor to the absolute 1-based rowIndex rather than sequential index i.
+    const records = toOrchardRecords(result, rawTextRows, transactionTypeColIdx, file.name, headerIdx)
 
     // Log unclassified records (Requirement 18.4)
     for (const rec of records) {
