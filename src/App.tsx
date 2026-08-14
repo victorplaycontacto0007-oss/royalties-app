@@ -13,6 +13,7 @@ import RenewalPage from './pages/RenewalPage'
 import ProfilePage from './pages/ProfilePage'
 import AffiliatePage from './pages/AffiliatePage'
 import LandingPage from './pages/LandingPage'
+import OrchardReportPage from './pages/OrchardReportPage'
 import Layout from './components/Layout'
 
 const Spinner = () => (
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/contracts" element={<ContractsPage />} />
           <Route path="/profile"   element={<ProfilePage />} />
           <Route path="/affiliate" element={<AffiliatePage />} />
+          <Route path="/orchard"   element={<OrchardReportPage />} />
           <Route path="/admin"     element={
             <ProtectedRoute adminOnly>
               <AdminPage />

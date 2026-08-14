@@ -39,7 +39,18 @@ const PROVIDERS: Array<{ name: ProviderName; signals: string[] }> = [
   { name: 'Amuse',          signals: ['amuse'] },
   { name: 'RouteNote',      signals: ['routenote'] },
   { name: 'UnitedMasters',  signals: ['unitedmasters'] },
-  // --- Dinastía (before generic DSPs — tiebreak by position) ---
+  // --- The Orchard ---
+  // Filename match ('orchard') takes priority; header-based detection is a
+  // fallback for files whose name does not contain 'orchard'. Header signals:
+  // any transaction_type alias ('transactiontype', 'usagetype', 'streamtype',
+  // 'subscriptiontype') combined with at least one platform-like column
+  // ('platform', 'store', 'dsp', 'service', 'channel').
+  // Both signal lists are checked against the combined search string so the
+  // first-match/tiebreak logic of detectProvider() handles priority naturally:
+  // if 'orchard' appears in the filename the combined string also contains it,
+  // and the filename-only entry below is listed first.
+  { name: 'The Orchard',    signals: ['orchard'] },
+  // Dynastía (before generic DSPs — tiebreak by position) ---
   { name: 'Dinastía',             signals: ['dinastia', 'nettotalclientcurrency', 'clientcurrency'] },
   // --- DSPs (renamed V2) ---
   { name: 'Spotify Direct',       signals: ['spotifydirect'] },
@@ -94,6 +105,24 @@ export function detectProvider(
       logger?.info(`Proveedor detectado: ${p.name}`)
       return p.name
     }
+  }
+
+  // --- The Orchard header-based fallback ---
+  // When the filename does not contain 'orchard', detect The Orchard by
+  // combination: any transaction_type alias present AND at least one
+  // platform-like column present.
+  const TRANSACTION_TYPE_ALIASES = [
+    'transactiontype', 'usagetype', 'streamtype', 'subscriptiontype',
+  ]
+  const PLATFORM_LIKE_SIGNALS = [
+    'platform', 'store', 'dsp', 'service', 'channel',
+  ]
+  const hasTransactionType = TRANSACTION_TYPE_ALIASES.some(a => headerStr.includes(a))
+  const hasPlatform = PLATFORM_LIKE_SIGNALS.some(p => headerStr.includes(p))
+
+  if (hasTransactionType && hasPlatform) {
+    logger?.info('Proveedor detectado: The Orchard')
+    return 'The Orchard'
   }
 
   // No provider matched — fall back to generic alias strategy.
