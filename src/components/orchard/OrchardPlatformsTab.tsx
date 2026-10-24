@@ -87,7 +87,7 @@ function CountryRow({ cs, allRecords, onDrillDown }: CountryRowProps) {
   const frRecords   = baseRecords.filter(r => r.normalizedStreamType === 'FRAUDULENT')
 
   return (
-    <tr className="bg-gray-50 border-b border-gray-100 hover:bg-blue-50/30 transition-colors text-xs">
+    <tr className="bg-surface-2 border-b border-border hover:bg-primary/5 transition-colors text-xs">
       {/* Country label with indent */}
       <td className="pl-10 pr-3 py-1.5 text-gray-600 font-medium whitespace-nowrap">
         <span className="text-gray-400 mr-1">↳</span>
@@ -209,7 +209,7 @@ function PlatformRow({
 
   return (
     <>
-      <tr className="border-b border-gray-200 hover:bg-gray-50 transition-colors text-sm font-medium">
+      <tr className="border-b border-border hover:bg-surface-2 transition-colors text-sm font-medium">
         {/* Platform name + expand toggle */}
         <td className="px-3 py-2.5 whitespace-nowrap">
           <button
@@ -349,44 +349,45 @@ export default function OrchardPlatformsTab({
 
   if (platformSummaries.length === 0) {
     return (
-      <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
+      <div className="flex items-center justify-center py-16 text-text-muted text-sm">
         No hay plataformas para mostrar.
       </div>
     )
   }
 
   return (
-    <div className="overflow-auto">
-      <table className="w-full text-xs border-collapse min-w-max">
+    <div className="card overflow-hidden p-0">
+      <div className="overflow-auto">
+        <table className="w-full text-xs border-collapse min-w-max">
         {/* ── Sticky header ─────────────────────────────────────────────── */}
-        <thead className="sticky top-0 z-10 bg-white border-b-2 border-gray-200">
+        <thead className="sticky top-0 z-10 bg-surface-2 border-b border-border">
           <tr>
-            <th className="px-3 py-2.5 text-left text-gray-500 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+            <th className="px-3 py-2.5 text-left text-text-muted font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
               Plataforma
             </th>
-            <th className="px-3 py-2.5 text-right text-gray-500 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+            <th className="px-3 py-2.5 text-right text-text-muted font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
               Total Streams
             </th>
-            <th className="px-3 py-2.5 text-right text-green-600 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+            <th className="px-3 py-2.5 text-right text-success font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
               FULL_PAY
             </th>
-            <th className="px-3 py-2.5 text-right text-blue-600 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
-              FREE_AD_SUPPORTED
+            <th className="px-3 py-2.5 text-right text-primary font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+              FREE_AD
             </th>
-            <th className="px-3 py-2.5 text-right text-yellow-600 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+            <th className="px-3 py-2.5 text-right text-warning font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
               FREE_TRIAL
             </th>
-            <th className="px-3 py-2.5 text-right text-red-500 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+            <th className="px-3 py-2.5 text-right text-error font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
               UNQUALIFIED
             </th>
-            <th className="px-3 py-2.5 text-right text-red-700 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+            <th className="px-3 py-2.5 text-right text-error font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
               FRAUDULENT
             </th>
-            <th className="px-3 py-2.5 text-right text-gray-500 font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
+            <th className="px-3 py-2.5 text-right text-text-muted font-semibold uppercase tracking-wide text-[11px] whitespace-nowrap">
               Revenue
             </th>
-            <th className="px-3 py-2.5 text-right text-gray-500 font-semibold text-[11px] whitespace-nowrap max-w-[160px]">
-              Promedio efectivo según este reporte
+            <th className="px-3 py-2.5 text-right text-text-muted font-semibold text-[11px] whitespace-nowrap max-w-[140px]">
+              Efect./1000
             </th>
           </tr>
         </thead>
@@ -406,6 +407,7 @@ export default function OrchardPlatformsTab({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

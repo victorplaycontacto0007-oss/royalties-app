@@ -17,7 +17,8 @@ import type { OrchardRecord } from '../../royalty-engine/StreamTypeClassifier'
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface OrchardUploadPanelProps {
-  onRecordsLoaded: (records: OrchardRecord[], fileName: string) => void
+  onRecordsLoaded: (records: OrchardRecord[], fileName?: string) => void
+  compact?: boolean
 }
 
 // ─── State types ─────────────────────────────────────────────────────────────
@@ -26,7 +27,7 @@ type PanelStatus = 'idle' | 'parsing' | 'success' | 'error'
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPanelProps) {
+export default function OrchardUploadPanel({ onRecordsLoaded, compact = false }: OrchardUploadPanelProps) {
   const [status, setStatus]               = useState<PanelStatus>('idle')
   const [importLog, setImportLog]         = useState<string[]>([])
   const [unmappedColumns, setUnmappedColumns] = useState<string[]>([])
@@ -104,7 +105,8 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
       {(status === 'idle' || status === 'parsing') && (
         <div
           {...getRootProps()}
-          className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-200
+          className={`border-2 border-dashed rounded-2xl text-center cursor-pointer transition-all duration-200
+            ${compact ? 'p-5' : 'p-12'}
             ${isDragActive
               ? 'border-primary bg-primary/5'
               : 'border-border hover:border-border-light hover:bg-surface-2'}

@@ -1,483 +1,297 @@
 /**
- * OrchardCatalogTab.tsx
- *
- * Catalog tab for the Orchard analytics UI.
- *
- * Primary view: accordion hierarchy Artist → Release → Track.
- * Each level shows inline: name, total streams, total revenue.
- * Expanding an artist shows its releases; expanding a release shows its tracks.
- * ISRC shown next to track name when non-empty.
- * UPC shown next to release name when non-empty.
- *
- * Secondary view ("Vista inversa"): flat track list sorted by revenue desc.
- * Columns: Track, Artista, ISRC, Streams, Revenue — all clickable.
- *
- * Clicking any name or metric value calls onDrillDown with the matching records.
- *
- * Requirements: 9.1, 9.2, 9.3, 9.4, 9.5
+ * OrchardCatalogTab.tsx — Rediseño profesional con filtros dropdown y tabla limpia.
  */
 
 import { useState, useMemo } from 'react'
-import { ChevronRight, ChevronDown } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import type { ArtistSummary, TrackSummary, ReleaseSummary } from '../../lib/orchard-analytics'
 import type { OrchardRecord } from '../../royalty-engine/StreamTypeClassifier'
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-
 interface OrchardCatalogTabProps {
-  artistSummaries: ArtistSummary[]
-  trackSummaries: TrackSummary[]
+  artistSummaries:  ArtistSummary[]
+  trackSummaries:   TrackSummary[]
   releaseSummaries: ReleaseSummary[]
-  allRecords: OrchardRecord[]
-  onDrillDown: (records: OrchardRecord[], label: string) => void
+  allRecords:       OrchardRecord[]
+  onDrillDown:      (records: OrchardRecord[], label: string) => void
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+type ViewBy = 'track' | 'artist' | 'album' | 'platform' | 'country'
+type SortKey = 'name' | 'country' | 'platform' | 'streams' | 'revenue' | 'per100' | 'per1000' | 'pct'
+type SortDir = 'asc' | 'desc'
 
-function fmtRevenue(n: number): string {
-  return `$${n.toFixed(4)}`
+interface Row {
+  track:    string
+  artist:   string
+  country:  string
+  platform: string
+  isrc:     string
+  streams:  number
+  revenue:  number
+  filter:   (r: OrchardRecord) => boolean
 }
 
-function fmtStreams(n: number): string {
-  return n.toLocaleString()
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
+const fmtR = (n: number) =>
+  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
 
 export default function OrchardCatalogTab({
-  artistSummaries,
-  trackSummaries,
-  releaseSummaries,
-  allRecords,
-  onDrillDown,
+  artistSummaries, trackSummaries, releaseSummaries, allRecords, onDrillDown,
 }: OrchardCatalogTabProps) {
-  // View toggle: 'hierarchy' (primary) | 'inverse' (secondary flat track list)
-  const [view, setView] = useState<'hierarchy' | 'inverse'>('hierarchy')
+  const [viewBy, setViewBy] = useState<ViewBy>('track')
+  const [artistFilter,   setArtistFilter]   = useState('all')
+  const [platformFilter, setPlatformFilter] = useState('all')
+  const [songFilter,     setSongFilter]     = useState('all')
+  const [countryFilter,  setCountryFilter]  = useState('all')
+  const [sortKey,  setSortKey]  = useState<SortKey>('revenue')
+  const [sortDir,  setSortDir]  = useState<SortDir>('desc')
 
-  // ── Flat track list sorted by revenue desc (secondary view) ───────────────
-  const flatTracks = useMemo(
-    () =>
-      [...trackSummaries].sort(
-        (a, b) => b.breakdown.total.revenue - a.breakdown.total.revenue,
-      ),
-    [trackSummaries],
-  )
+  const VIEW_OPTIONS: { id: ViewBy; label: string }[] = [
+    { id: 'track',    label: 'Canción'     },
+    { id: 'artist',   label: 'Artista'     },
+    { id: 'album',    label: 'Álbum'       },
+    { id: 'platform', label: 'Plataforma'  },
+    { id: 'country',  label: 'País'        },
+  ]
 
-  return (
-    <div className="flex flex-col gap-0">
-      {/* ── View toggle ───────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 px-4 py-2 border-b border-gray-100">
-        <button
-          onClick={() => setView('hierarchy')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            view === 'hierarchy'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-          }`}
-        >
-          Vista jerárquica
-        </button>
-        <button
-          onClick={() => setView('inverse')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            view === 'inverse'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-          }`}
-        >
-          Vista inversa
-        </button>
-      </div>
+  // ── Distinct filter options ───────────────────────────────────────────────
+  const artists   = useMemo(() => [...new Set(allRecords.map(r => r.artist))].sort(), [allRecords])
+  const platforms = useMemo(() => [...new Set(allRecords.map(r => r.platform))].sort(), [allRecords])
+  const songs     = useMemo(() => [...new Set(allRecords.map(r => r.track))].sort(), [allRecords])
+  const countries = useMemo(() => [...new Set(allRecords.map(r => r.country))].sort(), [allRecords])
 
-      {/* ── Content ─────────────────────────────────────────────────────── */}
-      {view === 'hierarchy' ? (
-        <HierarchyView
-          artistSummaries={artistSummaries}
-          releaseSummaries={releaseSummaries}
-          trackSummaries={trackSummaries}
-          allRecords={allRecords}
-          onDrillDown={onDrillDown}
-        />
-      ) : (
-        <FlatTrackView
-          tracks={flatTracks}
-          allRecords={allRecords}
-          onDrillDown={onDrillDown}
-        />
-      )}
-    </div>
-  )
-}
+  // ── Filtered base records ─────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    return allRecords.filter(r =>
+      (artistFilter   === 'all' || r.artist   === artistFilter)   &&
+      (platformFilter === 'all' || r.platform === platformFilter) &&
+      (songFilter     === 'all' || r.track    === songFilter)     &&
+      (countryFilter  === 'all' || r.country  === countryFilter)
+    )
+  }, [allRecords, artistFilter, platformFilter, songFilter, countryFilter])
 
-// ─── HierarchyView ────────────────────────────────────────────────────────────
+  // ── Build rows by viewBy ──────────────────────────────────────────────────
+  const rows: Row[] = useMemo(() => {
+    const agg = new Map<string, Row>()
 
-interface HierarchyViewProps {
-  artistSummaries: ArtistSummary[]
-  releaseSummaries: ReleaseSummary[]
-  trackSummaries: TrackSummary[]
-  allRecords: OrchardRecord[]
-  onDrillDown: (records: OrchardRecord[], label: string) => void
-}
+    for (const r of filtered) {
+      let key = ''
+      let name = ''
+      switch (viewBy) {
+        case 'track':    key = `${r.track}|||${r.artist}`;   name = r.track;    break
+        case 'artist':   key = r.artist;                      name = r.artist;   break
+        case 'album':    key = `${r.album}|||${r.artist}`;   name = r.album;    break
+        case 'platform': key = r.platform;                    name = r.platform; break
+        case 'country':  key = `${r.country}|||${r.platform}`; name = r.country; break
+      }
 
-function HierarchyView({
-  artistSummaries,
-  releaseSummaries,
-  trackSummaries,
-  allRecords,
-  onDrillDown,
-}: HierarchyViewProps) {
-  const [expandedArtists, setExpandedArtists] = useState<Set<string>>(new Set())
-  const [expandedReleases, setExpandedReleases] = useState<Set<string>>(new Set())
+      if (!agg.has(key)) {
+        agg.set(key, {
+          track:    viewBy === 'track'  ? r.track    : name,
+          artist:   viewBy === 'artist' ? r.artist   : (viewBy === 'track' ? r.artist : ''),
+          country:  viewBy === 'country'  ? r.country  : '',
+          platform: viewBy === 'platform' ? r.platform : (viewBy === 'country' ? r.platform : ''),
+          isrc:     viewBy === 'track' ? r.isrc : '',
+          streams:  0,
+          revenue:  0,
+          filter:   (rec: OrchardRecord) => {
+            switch (viewBy) {
+              case 'track':    return rec.track === r.track && rec.artist === r.artist
+              case 'artist':   return rec.artist === r.artist
+              case 'album':    return rec.album === r.album && rec.artist === r.artist
+              case 'platform': return rec.platform === r.platform
+              case 'country':  return rec.country === r.country && rec.platform === r.platform
+            }
+          },
+        })
+      }
+      const row = agg.get(key)!
+      row.streams += r.quantity
+      row.revenue += r.net_total
+    }
 
-  function toggleArtist(artist: string) {
-    setExpandedArtists(prev => {
-      const next = new Set(prev)
-      if (next.has(artist)) next.delete(artist)
-      else next.add(artist)
-      return next
+    return [...agg.values()]
+  }, [filtered, viewBy])
+
+  // ── Sort ──────────────────────────────────────────────────────────────────
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0)
+
+  const sorted = useMemo(() => {
+    const f = sortDir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => {
+      switch (sortKey) {
+        case 'name':     return a.track.localeCompare(b.track) * f
+        case 'country':  return a.country.localeCompare(b.country) * f
+        case 'platform': return a.platform.localeCompare(b.platform) * f
+        case 'streams':  return (a.streams - b.streams) * f
+        case 'revenue':  return (a.revenue - b.revenue) * f
+        case 'per100':   return ((a.streams > 0 ? a.revenue / a.streams * 100 : -Infinity) - (b.streams > 0 ? b.revenue / b.streams * 100 : -Infinity)) * f
+        case 'per1000':  return ((a.streams > 0 ? a.revenue / a.streams * 1000 : -Infinity) - (b.streams > 0 ? b.revenue / b.streams * 1000 : -Infinity)) * f
+        case 'pct':      return ((a.revenue / (totalRevenue || 1)) - (b.revenue / (totalRevenue || 1))) * f
+        default:         return 0
+      }
     })
+  }, [rows, sortKey, sortDir, totalRevenue])
+
+  const handleSort = (k: SortKey) => {
+    if (k === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(k); setSortDir('desc') }
   }
 
-  function toggleRelease(key: string) {
-    setExpandedReleases(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+  const clearFilters = () => {
+    setArtistFilter('all'); setPlatformFilter('all')
+    setSongFilter('all'); setCountryFilter('all')
   }
 
-  return (
-    <div className="divide-y divide-gray-50">
-      {artistSummaries.map(artist => {
-        const artistExpanded = expandedArtists.has(artist.artist)
-        const artistRecords = allRecords.filter(r => r.artist === artist.artist)
+  const hasFilter = artistFilter !== 'all' || platformFilter !== 'all' || songFilter !== 'all' || countryFilter !== 'all'
 
-        // Releases for this artist
-        const releases = releaseSummaries.filter(r => r.artist === artist.artist)
-
-        return (
-          <div key={artist.artist}>
-            {/* ── Artist row ────────────────────────────────────────────── */}
-            <div className="flex items-center gap-1 px-4 py-2 hover:bg-gray-50 group">
-              {/* Chevron toggle */}
-              <button
-                onClick={() => toggleArtist(artist.artist)}
-                className="flex-shrink-0 text-gray-400 hover:text-gray-600 p-0.5"
-                aria-label={artistExpanded ? 'Contraer artista' : 'Expandir artista'}
-              >
-                {artistExpanded ? (
-                  <ChevronDown className="w-3.5 h-3.5" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5" />
-                )}
-              </button>
-
-              {/* Artist name */}
-              <button
-                onClick={() => onDrillDown(artistRecords, `Artista: ${artist.artist}`)}
-                className="text-xs font-semibold text-gray-800 hover:text-blue-600 flex-1 text-left truncate"
-              >
-                {artist.artist}
-              </button>
-
-              {/* Metrics */}
-              <MetricBadge
-                value={fmtStreams(artist.breakdown.total.streams)}
-                onClick={() => onDrillDown(artistRecords, `Artista: ${artist.artist} — Streams`)}
-                title="Streams"
-              />
-              <MetricBadge
-                value={fmtRevenue(artist.breakdown.total.revenue)}
-                onClick={() => onDrillDown(artistRecords, `Artista: ${artist.artist} — Revenue`)}
-                title="Revenue"
-                variant="revenue"
-              />
-            </div>
-
-            {/* ── Releases (expanded artist) ────────────────────────────── */}
-            {artistExpanded && (
-              <div className="border-l-2 border-blue-100 ml-6">
-                {releases.length === 0 ? (
-                  <p className="px-6 py-2 text-xs text-gray-400 italic">Sin releases</p>
-                ) : (
-                  releases.map(release => {
-                    const releaseKey = `${artist.artist}|||${release.release}`
-                    const releaseExpanded = expandedReleases.has(releaseKey)
-                    const releaseRecords = allRecords.filter(
-                      r => r.album === release.release && r.artist === artist.artist,
-                    )
-
-                    // Tracks for this release
-                    const tracks = trackSummaries.filter(
-                      t => t.artist === artist.artist && /* track belongs to this release */
-                        allRecords.some(
-                          r => r.track === t.track && r.artist === t.artist && r.album === release.release,
-                        ),
-                    )
-
-                    return (
-                      <div key={releaseKey}>
-                        {/* Release row */}
-                        <div className="flex items-center gap-1 px-4 py-1.5 hover:bg-gray-50 pl-6">
-                          <button
-                            onClick={() => toggleRelease(releaseKey)}
-                            className="flex-shrink-0 text-gray-400 hover:text-gray-600 p-0.5"
-                            aria-label={releaseExpanded ? 'Contraer release' : 'Expandir release'}
-                          >
-                            {releaseExpanded ? (
-                              <ChevronDown className="w-3 h-3" />
-                            ) : (
-                              <ChevronRight className="w-3 h-3" />
-                            )}
-                          </button>
-
-                          <button
-                            onClick={() =>
-                              onDrillDown(releaseRecords, `Release: ${release.release}`)
-                            }
-                            className="text-xs text-gray-700 hover:text-blue-600 flex-1 text-left truncate font-medium"
-                          >
-                            {release.release}
-                            {release.upc ? (
-                              <span className="ml-1.5 text-gray-400 font-normal text-[10px]">
-                                UPC: {release.upc}
-                              </span>
-                            ) : null}
-                          </button>
-
-                          <MetricBadge
-                            value={fmtStreams(release.breakdown.total.streams)}
-                            onClick={() =>
-                              onDrillDown(
-                                releaseRecords,
-                                `Release: ${release.release} — Streams`,
-                              )
-                            }
-                            title="Streams"
-                          />
-                          <MetricBadge
-                            value={fmtRevenue(release.breakdown.total.revenue)}
-                            onClick={() =>
-                              onDrillDown(
-                                releaseRecords,
-                                `Release: ${release.release} — Revenue`,
-                              )
-                            }
-                            title="Revenue"
-                            variant="revenue"
-                          />
-                        </div>
-
-                        {/* ── Tracks (expanded release) ──────────────────── */}
-                        {releaseExpanded && (
-                          <div className="border-l-2 border-green-100 ml-10">
-                            {tracks.length === 0 ? (
-                              <p className="px-6 py-1.5 text-xs text-gray-400 italic">
-                                Sin canciones
-                              </p>
-                            ) : (
-                              tracks.map(track => {
-                                const trackRecords = allRecords.filter(
-                                  r => r.track === track.track && r.artist === artist.artist,
-                                )
-                                return (
-                                  <div
-                                    key={`${track.artist}|||${track.track}`}
-                                    className="flex items-center gap-1 px-4 py-1 hover:bg-gray-50 pl-10"
-                                  >
-                                    {/* Spacer to align with chevron */}
-                                    <span className="w-3.5 flex-shrink-0" />
-
-                                    <button
-                                      onClick={() =>
-                                        onDrillDown(trackRecords, `Track: ${track.track}`)
-                                      }
-                                      className="text-xs text-gray-600 hover:text-blue-600 flex-1 text-left truncate"
-                                    >
-                                      {track.track}
-                                      {track.isrc ? (
-                                        <span className="ml-1.5 text-gray-400 text-[10px] font-normal">
-                                          ISRC: {track.isrc}
-                                        </span>
-                                      ) : null}
-                                    </button>
-
-                                    <MetricBadge
-                                      value={fmtStreams(track.breakdown.total.streams)}
-                                      onClick={() =>
-                                        onDrillDown(
-                                          trackRecords,
-                                          `Track: ${track.track} — Streams`,
-                                        )
-                                      }
-                                      title="Streams"
-                                    />
-                                    <MetricBadge
-                                      value={fmtRevenue(track.breakdown.total.revenue)}
-                                      onClick={() =>
-                                        onDrillDown(
-                                          trackRecords,
-                                          `Track: ${track.track} — Revenue`,
-                                        )
-                                      }
-                                      title="Revenue"
-                                      variant="revenue"
-                                    />
-                                  </div>
-                                )
-                              })
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            )}
-          </div>
-        )
-      })}
-
-      {artistSummaries.length === 0 && (
-        <p className="px-4 py-8 text-center text-xs text-gray-400">Sin datos de catálogo.</p>
-      )}
-    </div>
-  )
-}
-
-// ─── FlatTrackView ────────────────────────────────────────────────────────────
-
-interface FlatTrackViewProps {
-  tracks: TrackSummary[]
-  allRecords: OrchardRecord[]
-  onDrillDown: (records: OrchardRecord[], label: string) => void
-}
-
-function FlatTrackView({ tracks, allRecords, onDrillDown }: FlatTrackViewProps) {
-  if (tracks.length === 0) {
+  function Th({ k, children }: { k: SortKey; children: React.ReactNode }) {
+    const active = sortKey === k
     return (
-      <p className="px-4 py-8 text-center text-xs text-gray-400">Sin canciones.</p>
+      <th
+        onClick={() => handleSort(k)}
+        className={`py-2 pr-4 text-left font-medium text-xs cursor-pointer select-none whitespace-nowrap hover:text-text-primary transition-colors ${active ? 'text-primary' : 'text-text-muted'}`}
+      >
+        <span className="inline-flex items-center gap-0.5">
+          {children}
+          {active
+            ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-primary" /> : <ChevronDown className="w-3 h-3 text-primary" />)
+            : <ChevronsUpDown className="w-3 h-3 opacity-30" />}
+        </span>
+      </th>
     )
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs border-collapse min-w-max">
-        <thead className="sticky top-0 bg-white border-b border-gray-200 z-10">
-          <tr>
-            {['Track', 'Artista', 'ISRC', 'Streams', 'Revenue'].map(col => (
-              <th
-                key={col}
-                className="text-left px-3 py-2 text-gray-500 font-semibold whitespace-nowrap text-[11px] uppercase tracking-wide"
-              >
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {tracks.map(track => {
-            const trackRecords = allRecords.filter(
-              r => r.track === track.track && r.artist === track.artist,
-            )
+    <div className="card flex flex-col gap-4">
+      {/* ── Filter row ── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={platformFilter} onChange={e => setPlatformFilter(e.target.value)}
+          className="input w-auto text-sm py-2 min-w-[160px]"
+        >
+          <option value="all">Todas las plataformas ({platforms.length})</option>
+          {platforms.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select
+          value={songFilter} onChange={e => setSongFilter(e.target.value)}
+          className="input w-auto text-sm py-2 min-w-[160px]"
+        >
+          <option value="all">Todas las canciones ({songs.length})</option>
+          {songs.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
+          className="input w-auto text-sm py-2 min-w-[140px]"
+        >
+          <option value="all">Todos los países ({countries.length})</option>
+          {countries.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {hasFilter && (
+          <button onClick={clearFilters} className="btn-ghost text-sm py-2 text-error">
+            Limpiar filtros
+          </button>
+        )}
+      </div>
 
-            return (
-              <tr
-                key={`${track.artist}|||${track.track}`}
-                className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-              >
-                {/* Track name */}
-                <td className="px-3 py-1.5 max-w-[200px]">
-                  <button
-                    onClick={() => onDrillDown(trackRecords, `Track: ${track.track}`)}
-                    className="text-gray-700 hover:text-blue-600 text-left truncate block max-w-full"
-                  >
-                    {track.track}
-                  </button>
-                </td>
+      {/* ── View toggle ── */}
+      <div className="flex items-center gap-1">
+        {VIEW_OPTIONS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setViewBy(id)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              viewBy === id
+                ? 'bg-primary text-white'
+                : 'bg-surface-2 text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-                {/* Artista */}
-                <td className="px-3 py-1.5 max-w-[160px]">
-                  <button
-                    onClick={() => {
-                      const artistRecords = allRecords.filter(r => r.artist === track.artist)
-                      onDrillDown(artistRecords, `Artista: ${track.artist}`)
-                    }}
-                    className="text-gray-600 hover:text-blue-600 text-left truncate block max-w-full"
-                  >
-                    {track.artist}
-                  </button>
-                </td>
+      {/* ── Table ── */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border">
+              <Th k="name">
+                {viewBy === 'track' ? 'Canción' : viewBy === 'artist' ? 'Artista'
+                  : viewBy === 'album' ? 'Álbum' : viewBy === 'platform' ? 'Plataforma' : 'País'}
+              </Th>
+              {viewBy === 'track'   && <th className="py-2 pr-4 text-left text-text-muted font-medium text-xs">Artista</th>}
+              {viewBy === 'country' && <Th k="platform">Plataforma</Th>}
+              <Th k="streams">Streams</Th>
+              <th className="py-2 pr-4 text-left text-text-muted font-medium text-xs">🔥 Regalías</th>
+              <Th k="per100">$/100</Th>
+              <Th k="per1000">$/1,000</Th>
+              <Th k="pct">% del total</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row, i) => {
+              const pct    = totalRevenue > 0 ? row.revenue / totalRevenue * 100 : 0
+              const p100   = row.streams > 0 ? row.revenue / row.streams * 100 : null
+              const p1000  = row.streams > 0 ? row.revenue / row.streams * 1000 : null
+              const label  = viewBy === 'track'
+                ? row.track
+                : viewBy === 'country'
+                  ? `${row.country} (${row.platform})`
+                  : row.track
 
-                {/* ISRC */}
-                <td className="px-3 py-1.5 whitespace-nowrap">
-                  {track.isrc ? (
-                    <button
-                      onClick={() => onDrillDown(trackRecords, `ISRC: ${track.isrc}`)}
-                      className="text-gray-500 hover:text-blue-600 font-mono"
-                    >
-                      {track.isrc}
-                    </button>
-                  ) : (
-                    <span className="text-gray-300">—</span>
+              return (
+                <tr
+                  key={i}
+                  className="border-b border-border/50 hover:bg-surface-2 transition-colors cursor-pointer"
+                  onClick={() => onDrillDown(filtered.filter(row.filter), label)}
+                >
+                  <td className="py-2.5 pr-4">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-primary/60 flex-shrink-0" />
+                      <span className="text-text-primary font-medium text-xs truncate max-w-[200px]" title={row.track}>
+                        {row.track}
+                      </span>
+                    </div>
+                  </td>
+                  {viewBy === 'track' && (
+                    <td className="py-2.5 pr-4 text-text-secondary text-xs truncate max-w-[140px]">{row.artist}</td>
                   )}
-                </td>
+                  {viewBy === 'country' && (
+                    <td className="py-2.5 pr-4 text-text-secondary text-xs">{row.platform}</td>
+                  )}
+                  <td className="py-2.5 pr-4 text-text-secondary text-xs tabular-nums">{row.streams.toLocaleString()}</td>
+                  <td className="py-2.5 pr-4 text-text-primary font-semibold text-xs tabular-nums">{fmtR(row.revenue)}</td>
+                  <td className="py-2.5 pr-4 text-primary text-xs tabular-nums">
+                    {p100 !== null ? `$${p100.toFixed(4)}` : '—'}
+                  </td>
+                  <td className="py-2.5 pr-4 text-primary text-xs tabular-nums">
+                    {p1000 !== null ? `$${p1000.toFixed(4)}` : '—'}
+                  </td>
+                  <td className="py-2.5 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-1.5 bg-surface-3 rounded-full overflow-hidden">
+                        <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
+                      </div>
+                      <span className="text-text-muted tabular-nums">{pct.toFixed(1)}%</span>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
 
-                {/* Streams */}
-                <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                  <button
-                    onClick={() =>
-                      onDrillDown(trackRecords, `Track: ${track.track} — Streams`)
-                    }
-                    className="text-gray-700 hover:text-blue-600 font-mono"
-                  >
-                    {fmtStreams(track.breakdown.total.streams)}
-                  </button>
-                </td>
+        {sorted.length === 0 && (
+          <p className="text-center text-text-muted text-xs py-10">Sin datos para los filtros seleccionados.</p>
+        )}
+      </div>
 
-                {/* Revenue */}
-                <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                  <button
-                    onClick={() =>
-                      onDrillDown(trackRecords, `Track: ${track.track} — Revenue`)
-                    }
-                    className={`font-mono hover:text-blue-600 ${
-                      track.breakdown.total.revenue < 0 ? 'text-red-600' : 'text-gray-700'
-                    }`}
-                  >
-                    {fmtRevenue(track.breakdown.total.revenue)}
-                  </button>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      {/* ── Footer count ── */}
+      {sorted.length > 0 && (
+        <p className="text-text-muted text-xs pt-1">
+          {sorted.length.toLocaleString()} {viewBy === 'track' ? 'canciones' : viewBy === 'artist' ? 'artistas' : 'entradas'}
+          {hasFilter && <span className="ml-1">(filtradas)</span>}
+        </p>
+      )}
     </div>
-  )
-}
-
-// ─── MetricBadge ─────────────────────────────────────────────────────────────
-
-interface MetricBadgeProps {
-  value: string
-  onClick: () => void
-  title: string
-  variant?: 'default' | 'revenue'
-}
-
-function MetricBadge({ value, onClick, title, variant = 'default' }: MetricBadgeProps) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`flex-shrink-0 font-mono text-[10px] px-1.5 py-0.5 rounded hover:bg-blue-50 hover:text-blue-600 transition-colors ${
-        variant === 'revenue' ? 'text-gray-600' : 'text-gray-500'
-      }`}
-    >
-      {value}
-    </button>
   )
 }

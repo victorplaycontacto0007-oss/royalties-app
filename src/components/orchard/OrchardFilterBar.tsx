@@ -105,8 +105,9 @@ export default function OrchardFilterBar({
   // Active filter chips: all non-null fields
   const activeChips = ALL_FIELDS.filter(f => filters[f] !== null)
 
-  // Return nothing when no filters are active (Requirement 14.5)
-  if (!isAnyFilterActive(filters)) return null
+  // Return nothing when no filters are active — removed: dropdowns should always be visible
+  // so users can start filtering without first setting a filter elsewhere.
+  // if (!isAnyFilterActive(filters)) return null
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
