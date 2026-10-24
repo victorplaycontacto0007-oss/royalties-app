@@ -3,6 +3,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { RoyaltyRecord, Contract } from '../types/database'
 import { formatCurrency, formatNumber, ratePerK } from './utils'
+import type { OrchardRecord } from '../royalty-engine/StreamTypeClassifier'
 
 // ── Apply split to an amount ──────────────────────────────────
 export function applySplits(gross: number, splits: Contract['splits']): Array<{ participant: string; role: string; percentage: number; amount: number }> {
@@ -248,4 +249,184 @@ export function exportConsolidatedExcel(
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([detailHdr, ...detailRows]), 'Detalle')
 
   XLSX.writeFile(wb, `${filename}.xlsx`)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Orchard artist report — XLSX con formato visual tipo Google Sheets
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ArtistSplit {
+  artistPct: number  // 0-100
+  labelPct:  number  // 0-100
+  labelName: string
+}
+
+export function exportOrchardArtistReport(
+  artist: string,
+  records: OrchardRecord[],
+  split: ArtistSplit,
+) {
+  const wb = XLSX.utils.book_new()
+
+  const artistRecs = records.filter(r => r.artist === artist)
+  const totalRev   = artistRecs.reduce((s, r) => s + r.net_total, 0)
+  const totalStr   = artistRecs.reduce((s, r) => s + r.quantity, 0)
+  const artistAmt  = totalRev * (split.artistPct / 100)
+  const labelAmt   = totalRev * (split.labelPct  / 100)
+  const rpm        = totalStr > 0 ? (totalRev / totalStr * 1000) : 0
+  const period     = [...new Set(artistRecs.map(r => r.sale_period))].sort()
+  const generated  = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
+
+  // ── Estilo helper ──────────────────────────────────────────────────────────
+  // SheetJS community edition no soporta estilos directamente, pero sí
+  // permite definir anchos de columna y formatos de celda numérica.
+  // Para color usamos xlsx-js-style si está disponible; si no, solo datos.
+
+  // ── HOJA 1: Resumen / Liquidación ─────────────────────────────────────────
+  const fmtMoney = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+  const fmtInt   = (n: number) => n.toLocaleString('en-US')
+
+  const resumen: (string | number)[][] = [
+    [],
+    ['', 'LIQUIDACIÓN DE REGALÍAS', '', '', '', ''],
+    ['', `Artista: ${artist}`, '', '', '', ''],
+    ['', `Período: ${period.join(', ')}`, '', '', '', ''],
+    ['', `Generado: ${generated}`, '', '', '', ''],
+    [],
+    ['', 'RESUMEN GENERAL', '', '', '', ''],
+    ['', '', '', '', '', ''],
+    ['', 'Total streams',          '', fmtInt(totalStr),   '', ''],
+    ['', 'Ingresos brutos',        '', fmtMoney(totalRev), '', ''],
+    ['', 'RPM ($/1,000 streams)',   '', `$${rpm.toFixed(4)}`,   '', ''],
+    [],
+    ['', 'DISTRIBUCIÓN DE INGRESOS', '', '', '', ''],
+    ['', '', '', '', '', ''],
+    ['', 'Participante',           'Porcentaje', 'Monto',              '', ''],
+    ['', artist,                   `${split.artistPct}%`, fmtMoney(artistAmt), '', ''],
+    ['', split.labelName || 'Sello', `${split.labelPct}%`, fmtMoney(labelAmt), '', ''],
+    ['', 'TOTAL',                  '100%',        fmtMoney(totalRev),  '', ''],
+    [],
+  ]
+
+  const wsResumen = XLSX.utils.aoa_to_sheet(resumen)
+  wsResumen['!cols'] = [{ wch: 2 }, { wch: 32 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 14 }]
+  XLSX.utils.book_append_sheet(wb, wsResumen, 'Liquidación')
+
+  // ── HOJA 2: Por canción ────────────────────────────────────────────────────
+  const songMap = new Map<string, { streams: number; revenue: number; platform: Set<string> }>()
+  for (const r of artistRecs) {
+    const key = r.track
+    if (!songMap.has(key)) songMap.set(key, { streams: 0, revenue: 0, platform: new Set() })
+    const s = songMap.get(key)!
+    s.streams += r.quantity
+    s.revenue += r.net_total
+    s.platform.add(r.platform)
+  }
+  const songs = [...songMap.entries()]
+    .map(([name, v]) => ({ name, streams: v.streams, revenue: v.revenue, platforms: [...v.platform].join(', ') }))
+    .sort((a, b) => b.revenue - a.revenue)
+  const totalSongs = songs.length
+
+  const songHdr = ['#', 'Canción', 'Plataformas', 'Streams', 'Ingresos brutos', '$/1,000', `Para ${artist} (${split.artistPct}%)`, `Para ${split.labelName || 'Sello'} (${split.labelPct}%)`]
+  const songRows = songs.map((s, i) => {
+    const rpm2 = s.streams > 0 ? s.revenue / s.streams * 1000 : 0
+    return [
+      i + 1, s.name, s.platforms, s.streams,
+      parseFloat(s.revenue.toFixed(6)),
+      parseFloat(rpm2.toFixed(6)),
+      parseFloat((s.revenue * split.artistPct / 100).toFixed(6)),
+      parseFloat((s.revenue * split.labelPct  / 100).toFixed(6)),
+    ]
+  })
+  // Totals row
+  const songTotals = [
+    '', 'TOTAL', `${totalSongs} canciones`,
+    songs.reduce((s, r) => s + r.streams, 0),
+    parseFloat(totalRev.toFixed(6)),
+    parseFloat(rpm.toFixed(6)),
+    parseFloat(artistAmt.toFixed(6)),
+    parseFloat(labelAmt.toFixed(6)),
+  ]
+
+  const wsSongs = XLSX.utils.aoa_to_sheet([songHdr, ...songRows, [], songTotals])
+  wsSongs['!cols'] = [{ wch: 4 }, { wch: 36 }, { wch: 28 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsSongs, 'Por canción')
+
+  // ── HOJA 3: Por plataforma ─────────────────────────────────────────────────
+  const platMap = new Map<string, { streams: number; revenue: number }>()
+  for (const r of artistRecs) {
+    if (!platMap.has(r.platform)) platMap.set(r.platform, { streams: 0, revenue: 0 })
+    const p = platMap.get(r.platform)!
+    p.streams += r.quantity
+    p.revenue += r.net_total
+  }
+  const plats = [...platMap.entries()]
+    .map(([name, v]) => ({ name, streams: v.streams, revenue: v.revenue }))
+    .sort((a, b) => b.revenue - a.revenue)
+
+  const platHdr = ['Plataforma', 'Streams', '% streams', 'Ingresos brutos', '% ingresos', '$/1,000', `Para ${artist}`, `Para ${split.labelName || 'Sello'}`]
+  const platRows = plats.map(p => {
+    const rpm3 = p.streams > 0 ? p.revenue / p.streams * 1000 : 0
+    return [
+      p.name, p.streams,
+      totalStr > 0 ? parseFloat((p.streams / totalStr * 100).toFixed(2)) : 0,
+      parseFloat(p.revenue.toFixed(6)),
+      totalRev > 0  ? parseFloat((p.revenue / totalRev  * 100).toFixed(2)) : 0,
+      parseFloat(rpm3.toFixed(6)),
+      parseFloat((p.revenue * split.artistPct / 100).toFixed(6)),
+      parseFloat((p.revenue * split.labelPct  / 100).toFixed(6)),
+    ]
+  })
+
+  const wsPlat = XLSX.utils.aoa_to_sheet([platHdr, ...platRows])
+  wsPlat['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsPlat, 'Por plataforma')
+
+  // ── HOJA 4: Por país ───────────────────────────────────────────────────────
+  const ctryMap = new Map<string, { streams: number; revenue: number }>()
+  for (const r of artistRecs) {
+    if (!ctryMap.has(r.country)) ctryMap.set(r.country, { streams: 0, revenue: 0 })
+    const c = ctryMap.get(r.country)!
+    c.streams += r.quantity
+    c.revenue += r.net_total
+  }
+  const ctries = [...ctryMap.entries()]
+    .map(([name, v]) => ({ name, streams: v.streams, revenue: v.revenue }))
+    .sort((a, b) => b.revenue - a.revenue)
+
+  const ctryHdr = ['País', 'Streams', '% streams', 'Ingresos brutos', '% ingresos', `Para ${artist}`, `Para ${split.labelName || 'Sello'}`]
+  const ctryRows = ctries.map(c => {
+    return [
+      c.name, c.streams,
+      totalStr > 0 ? parseFloat((c.streams / totalStr * 100).toFixed(2)) : 0,
+      parseFloat(c.revenue.toFixed(6)),
+      totalRev > 0  ? parseFloat((c.revenue / totalRev  * 100).toFixed(2)) : 0,
+      parseFloat((c.revenue * split.artistPct / 100).toFixed(6)),
+      parseFloat((c.revenue * split.labelPct  / 100).toFixed(6)),
+    ]
+  })
+
+  const wsCtry = XLSX.utils.aoa_to_sheet([ctryHdr, ...ctryRows])
+  wsCtry['!cols'] = [{ wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 22 }]
+  XLSX.utils.book_append_sheet(wb, wsCtry, 'Por país')
+
+  // ── HOJA 5: Detalle completo ───────────────────────────────────────────────
+  const detHdr = ['Período', 'Plataforma', 'País', 'Canción', 'ISRC', 'Tipo de stream', 'Streams', 'Ingresos brutos', `Para ${artist}`, `Para ${split.labelName || 'Sello'}`]
+  const detRows = artistRecs.map(r => [
+    r.sale_period, r.platform, r.country, r.track, r.isrc,
+    r.rawStreamType || r.normalizedStreamType,
+    r.quantity,
+    parseFloat(r.net_total.toFixed(8)),
+    parseFloat((r.net_total * split.artistPct / 100).toFixed(8)),
+    parseFloat((r.net_total * split.labelPct  / 100).toFixed(8)),
+  ])
+
+  const wsDet = XLSX.utils.aoa_to_sheet([detHdr, ...detRows])
+  wsDet['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 36 }, { wch: 16 }, { wch: 38 }, { wch: 10 }, { wch: 18 }, { wch: 20 }, { wch: 20 }]
+  XLSX.utils.book_append_sheet(wb, wsDet, 'Detalle')
+
+  // ── Exportar ───────────────────────────────────────────────────────────────
+  const safeName = artist.replace(/[^a-zA-Z0-9_\- ]/g, '').trim()
+  const periodStr = period.length === 1 ? period[0] : `${period[0]}_${period[period.length - 1]}`
+  XLSX.writeFile(wb, `Liquidacion_${safeName}_${periodStr}.xlsx`)
 }

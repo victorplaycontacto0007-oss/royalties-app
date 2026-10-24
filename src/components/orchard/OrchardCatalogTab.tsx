@@ -3,9 +3,10 @@
  */
 
 import { useState, useMemo } from 'react'
-import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronsUpDown, FileSpreadsheet, X } from 'lucide-react'
 import type { ArtistSummary, TrackSummary, ReleaseSummary } from '../../lib/orchard-analytics'
 import type { OrchardRecord } from '../../royalty-engine/StreamTypeClassifier'
+import { exportOrchardArtistReport } from '../../lib/splits-export'
 
 interface OrchardCatalogTabProps {
   artistSummaries:  ArtistSummary[]
@@ -43,6 +44,12 @@ export default function OrchardCatalogTab({
   const [countryFilter,  setCountryFilter]  = useState('all')
   const [sortKey,  setSortKey]  = useState<SortKey>('revenue')
   const [sortDir,  setSortDir]  = useState<SortDir>('desc')
+
+  // ── Reporte modal state ───────────────────────────────────────────────────
+  const [reportModal, setReportModal] = useState(false)
+  const [reportArtist, setReportArtist] = useState('')
+  const [artistPct, setArtistPct] = useState(70)
+  const [labelName, setLabelName] = useState('Sello')
 
   const VIEW_OPTIONS: { id: ViewBy; label: string }[] = [
     { id: 'track',    label: 'Canción'     },
@@ -190,6 +197,20 @@ export default function OrchardCatalogTab({
             Limpiar filtros
           </button>
         )}
+
+        {/* ── Botón Generar Reporte ── */}
+        <div className="ml-auto">
+          <button
+            onClick={() => {
+              setReportArtist(artistFilter !== 'all' ? artistFilter : (artists[0] ?? ''))
+              setReportModal(true)
+            }}
+            className="btn-primary text-xs py-2 px-3 gap-1.5"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Generar reporte
+          </button>
+        </div>
       </div>
 
       {/* ── View toggle ── */}
@@ -291,6 +312,135 @@ export default function OrchardCatalogTab({
           {sorted.length.toLocaleString()} {viewBy === 'track' ? 'canciones' : viewBy === 'artist' ? 'artistas' : 'entradas'}
           {hasFilter && <span className="ml-1">(filtradas)</span>}
         </p>
+      )}
+
+      {/* ── Modal de reporte por artista ── */}
+      {reportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-primary" />
+                <h2 className="text-base font-bold text-text-primary">Generar reporte de artista</h2>
+              </div>
+              <button onClick={() => setReportModal(false)} className="p-1.5 rounded-lg hover:bg-surface-2 text-text-muted">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="px-6 py-5 flex flex-col gap-5">
+
+              {/* Artista */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-text-secondary">Artista</label>
+                <select
+                  value={reportArtist}
+                  onChange={e => setReportArtist(e.target.value)}
+                  className="input text-sm"
+                >
+                  {artists.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+
+              {/* Split slider */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-text-secondary">Distribución de ingresos</label>
+
+                {/* Visual split bar */}
+                <div className="flex rounded-xl overflow-hidden h-8 text-xs font-semibold">
+                  <div
+                    className="flex items-center justify-center bg-primary text-white transition-all"
+                    style={{ width: `${artistPct}%` }}
+                  >
+                    {artistPct > 15 ? `Artista ${artistPct}%` : `${artistPct}%`}
+                  </div>
+                  <div
+                    className="flex items-center justify-center bg-surface-3 text-text-secondary transition-all"
+                    style={{ width: `${100 - artistPct}%` }}
+                  >
+                    {(100 - artistPct) > 15 ? `Sello ${100 - artistPct}%` : `${100 - artistPct}%`}
+                  </div>
+                </div>
+
+                <input
+                  type="range" min={0} max={100} step={1}
+                  value={artistPct}
+                  onChange={e => setArtistPct(Number(e.target.value))}
+                  className="w-full accent-primary"
+                />
+
+                <div className="flex justify-between text-xs text-text-muted">
+                  <span>Artista: <strong className="text-text-primary">{artistPct}%</strong></span>
+                  <span>Sello: <strong className="text-text-primary">{100 - artistPct}%</strong></span>
+                </div>
+              </div>
+
+              {/* Label name */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-text-secondary">Nombre del sello</label>
+                <input
+                  type="text"
+                  value={labelName}
+                  onChange={e => setLabelName(e.target.value)}
+                  placeholder="Ej: Flow Independiente"
+                  className="input text-sm"
+                />
+              </div>
+
+              {/* Preview */}
+              {reportArtist && (() => {
+                const recs = allRecords.filter(r => r.artist === reportArtist)
+                const rev  = recs.reduce((s, r) => s + r.net_total, 0)
+                const str  = recs.reduce((s, r) => s + r.quantity, 0)
+                const artAmt = rev * artistPct / 100
+                const lblAmt = rev * (100 - artistPct) / 100
+                return (
+                  <div className="bg-surface-2 rounded-xl p-4 flex flex-col gap-2 text-xs">
+                    <p className="font-semibold text-text-primary">Vista previa — {reportArtist}</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      <span className="text-text-muted">Registros</span>
+                      <span className="font-medium text-text-primary">{recs.length.toLocaleString()}</span>
+                      <span className="text-text-muted">Streams</span>
+                      <span className="font-medium text-text-primary">{str.toLocaleString()}</span>
+                      <span className="text-text-muted">Ingresos brutos</span>
+                      <span className="font-semibold text-text-primary">${rev.toFixed(4)}</span>
+                      <span className="text-text-muted">Para artista ({artistPct}%)</span>
+                      <span className="font-semibold text-primary">${artAmt.toFixed(4)}</span>
+                      <span className="text-text-muted">Para sello ({100 - artistPct}%)</span>
+                      <span className="font-semibold text-text-secondary">${lblAmt.toFixed(4)}</span>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-border flex items-center justify-end gap-3">
+              <button onClick={() => setReportModal(false)} className="btn-secondary text-sm">
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (!reportArtist) return
+                  exportOrchardArtistReport(reportArtist, allRecords, {
+                    artistPct,
+                    labelPct:  100 - artistPct,
+                    labelName: labelName || 'Sello',
+                  })
+                  setReportModal(false)
+                }}
+                className="btn-primary text-sm gap-2"
+                disabled={!reportArtist}
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Descargar Excel (.xlsx)
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -1,12 +1,12 @@
 /**
- * OrchardReportPage.tsx — Rediseñado con estilo profesional.
- * Persistencia de records en localStorage para sobrevivir recargas.
+ * OrchardReportPage.tsx — Con biblioteca de reportes guardados en localStorage.
  */
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   BarChart2, Globe, BookOpen, AlertTriangle, CheckSquare,
-  LayoutDashboard, Upload, Trash2, Download,
+  LayoutDashboard, Upload, Trash2, Download, FolderOpen,
+  FileText, Clock, ChevronRight, Plus, X,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -33,13 +33,7 @@ import OrchardReconciliationTab from '../components/orchard/OrchardReconciliatio
 
 type TabId = 'dashboard' | 'platforms' | 'countries' | 'catalog' | 'noroyalty' | 'reconciliation'
 
-interface TabDef {
-  id: TabId
-  label: string
-  Icon: React.ElementType
-}
-
-const TABS: TabDef[] = [
+const TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
   { id: 'dashboard',      label: 'Dashboard',      Icon: LayoutDashboard },
   { id: 'platforms',      label: 'Plataformas',    Icon: BarChart2       },
   { id: 'countries',      label: 'Países',         Icon: Globe           },
@@ -53,19 +47,48 @@ const EMPTY_FILTERS: FilterState = {
   release: null, isrc: null, upc: null, normalizedStreamType: null, rawStreamType: null,
 }
 
-const LS_KEY = 'orchard_records_v1'
+// ─── Saved report type ────────────────────────────────────────────────────────
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function saveToStorage(records: OrchardRecord[]) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(records)) } catch { /* ignore quota errors */ }
+interface SavedReport {
+  id:        string          // uuid-like key
+  name:      string          // original filename
+  savedAt:   string          // ISO date string
+  records:   number          // count
+  periods:   string[]        // unique sale_periods
+  revenue:   number          // total revenue
+  streams:   number          // total streams
+  data:      OrchardRecord[] // actual records
 }
 
-function loadFromStorage(): OrchardRecord[] {
+// ─── Storage helpers ──────────────────────────────────────────────────────────
+
+const LS_REPORTS_KEY = 'orchard_saved_reports_v1'
+
+function loadSavedReports(): SavedReport[] {
   try {
-    const raw = localStorage.getItem(LS_KEY)
-    return raw ? (JSON.parse(raw) as OrchardRecord[]) : []
+    const raw = localStorage.getItem(LS_REPORTS_KEY)
+    return raw ? (JSON.parse(raw) as SavedReport[]) : []
   } catch { return [] }
+}
+
+function saveSavedReports(reports: SavedReport[]) {
+  try { localStorage.setItem(LS_REPORTS_KEY, JSON.stringify(reports)) } catch {}
+}
+
+function buildReport(records: OrchardRecord[], fileName: string): SavedReport {
+  const periods = [...new Set(records.map(r => r.sale_period))].sort()
+  const revenue = records.reduce((s, r) => s + r.net_total, 0)
+  const streams = records.reduce((s, r) => s + r.quantity, 0)
+  return {
+    id:      `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name:    fileName,
+    savedAt: new Date().toISOString(),
+    records: records.length,
+    periods,
+    revenue,
+    streams,
+    data:    records,
+  }
 }
 
 function exportCSV(records: OrchardRecord[]) {
@@ -81,83 +104,316 @@ function exportCSV(records: OrchardRecord[]) {
   a.click()
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const fmtR  = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtDt = (iso: string) => new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-export default function OrchardReportPage() {
-  const [records,   setRecords]   = useState<OrchardRecord[]>(() => loadFromStorage())
-  const [filters,   setFilters]   = useState<FilterState>(EMPTY_FILTERS)
-  const [activeTab, setActiveTab] = useState<TabId>('dashboard')
-  const [drillDown, setDrillDown] = useState<{ records: OrchardRecord[]; label: string } | null>(null)
-  const [showUpload, setShowUpload] = useState(false)
+// ─── Library view (no report loaded) ─────────────────────────────────────────
 
-  // Persist to localStorage whenever records change
-  useEffect(() => { saveToStorage(records) }, [records])
-
-  const handleRecordsLoaded = useCallback((newRecords: OrchardRecord[]) => {
-    setRecords(prev => [...prev, ...newRecords])
-    setShowUpload(false)
-  }, [])
-
-  const handleClearAll = useCallback(() => {
-    if (confirm('¿Eliminar todos los registros cargados?')) {
-      setRecords([])
-      setFilters(EMPTY_FILTERS)
-      localStorage.removeItem(LS_KEY)
-    }
-  }, [])
-
-  const handleMetricClick = useCallback((matchingRecords: OrchardRecord[], label: string) => {
-    setDrillDown({ records: matchingRecords, label })
-  }, [])
-
-  const filteredRecords   = useMemo(() => applyFilters(records, filters), [records, filters])
-  const breakdown         = useMemo(() => computeBreakdown(filteredRecords), [filteredRecords])
-  const platformSummaries = useMemo(() => computePlatformSummaries(filteredRecords), [filteredRecords])
-  const countrySummaries  = useMemo(() => computeCountrySummaries(filteredRecords), [filteredRecords])
-  const matrix            = useMemo(() => computeMatrix(filteredRecords), [filteredRecords])
-  const artistSummaries   = useMemo(() => computeArtistSummaries(filteredRecords), [filteredRecords])
-  const trackSummaries    = useMemo(() => computeTrackSummaries(filteredRecords), [filteredRecords])
-  const releaseSummaries  = useMemo(() => computeReleaseSummaries(filteredRecords), [filteredRecords])
-  const noRoyaltyEntries  = useMemo(() => computeNoRoyaltyReport(filteredRecords), [filteredRecords])
-  const reconciliation    = useMemo(() => computeReconciliation(filteredRecords), [filteredRecords])
-  const rankings          = useMemo(() => computeRankings(filteredRecords), [filteredRecords])
-  const dateRange         = useMemo(() => getDateRange(filteredRecords), [filteredRecords])
-
-  const totalRevenue = breakdown.total.revenue
-  const totalStreams  = breakdown.total.streams
-
-  // ── Empty state ─────────────────────────────────────────────────────────────
-  if (records.length === 0) {
-    return (
-      <div className="min-h-full flex flex-col items-center justify-center px-4 py-16 bg-white">
-        <div className="w-full max-w-lg flex flex-col gap-6">
-          <div className="text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-primary/10 rounded-2xl mb-4">
-              <BarChart2 className="w-7 h-7 text-primary" />
-            </div>
-            <h1 className="text-2xl font-bold text-text-primary">Orchard Analyzer</h1>
-            <p className="text-text-muted text-sm mt-2">
-              Importa un reporte de The Orchard para comenzar el análisis.
+function LibraryView({
+  saved,
+  onLoad,
+  onDelete,
+  onNew,
+}: {
+  saved: SavedReport[]
+  onLoad: (r: SavedReport) => void
+  onDelete: (id: string) => void
+  onNew: () => void
+}) {
+  return (
+    <div className="min-h-full flex flex-col bg-white">
+      {/* Header */}
+      <div className="px-6 pt-5 pb-4 border-b border-border flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+            <BarChart2 className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-text-primary leading-none">Orchard Analyzer</h1>
+            <p className="text-text-muted text-xs mt-0.5">
+              {saved.length > 0 ? `${saved.length} reporte${saved.length !== 1 ? 's' : ''} guardado${saved.length !== 1 ? 's' : ''}` : 'Sin reportes guardados'}
             </p>
           </div>
-          <OrchardUploadPanel onRecordsLoaded={handleRecordsLoaded} />
         </div>
+        <button onClick={onNew} className="btn-primary text-sm gap-2">
+          <Plus className="w-4 h-4" />
+          Nuevo reporte
+        </button>
       </div>
+
+      <div className="flex-1 px-6 py-6">
+        {saved.length === 0 ? (
+          /* Empty state */
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center">
+              <FolderOpen className="w-8 h-8 text-text-muted" />
+            </div>
+            <div className="text-center">
+              <p className="text-text-primary font-semibold">Sin reportes guardados</p>
+              <p className="text-text-muted text-sm mt-1">Sube un reporte de The Orchard para comenzar.</p>
+            </div>
+            <button onClick={onNew} className="btn-secondary gap-2 mt-2">
+              <Upload className="w-4 h-4" />
+              Subir reporte
+            </button>
+          </div>
+        ) : (
+          /* Report grid */
+          <div className="flex flex-col gap-3">
+            <p className="text-text-secondary text-sm font-medium mb-1">Mis reportes</p>
+            {saved.map(report => (
+              <div
+                key={report.id}
+                className="card p-0 flex items-center hover:shadow-card-hover transition-shadow cursor-pointer group"
+                onClick={() => onLoad(report)}
+              >
+                {/* Color bar */}
+                <div className="w-1 self-stretch bg-primary rounded-l-2xl flex-shrink-0" />
+
+                {/* Icon */}
+                <div className="pl-4 pr-3 py-4 flex-shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-primary" />
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0 py-4 pr-4">
+                  <p className="text-text-primary font-semibold text-sm truncate" title={report.name}>
+                    {report.name}
+                  </p>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
+                    <span className="text-text-muted text-xs flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {fmtDt(report.savedAt)}
+                    </span>
+                    <span className="text-text-muted text-xs">
+                      {report.records.toLocaleString()} registros
+                    </span>
+                    {report.periods.length > 0 && (
+                      <span className="badge badge-primary">
+                        {report.periods.length === 1 ? report.periods[0] : `${report.periods[0]} – ${report.periods[report.periods.length - 1]}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className="hidden sm:flex items-center gap-6 pr-4 text-right flex-shrink-0">
+                  <div>
+                    <p className="text-text-muted text-[11px]">Ingresos</p>
+                    <p className="text-text-primary font-semibold text-sm">{fmtR(report.revenue)}</p>
+                  </div>
+                  <div>
+                    <p className="text-text-muted text-[11px]">Streams</p>
+                    <p className="text-text-primary font-semibold text-sm">{report.streams.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-1 pr-4 flex-shrink-0">
+                  <span className="text-primary text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity mr-1">
+                    Ver
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-text-muted group-hover:text-primary transition-colors" />
+                  <button
+                    onClick={e => { e.stopPropagation(); if (confirm(`¿Eliminar "${report.name}"?`)) onDelete(report.id) }}
+                    className="ml-1 p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors opacity-0 group-hover:opacity-100"
+                    title="Eliminar"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Upload modal ─────────────────────────────────────────────────────────────
+
+function UploadModal({ onLoaded, onClose }: {
+  onLoaded: (records: OrchardRecord[], name: string) => void
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-bold text-text-primary">Subir reporte Orchard</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-2 text-text-muted transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-6">
+          <OrchardUploadPanel onRecordsLoaded={(records, name) => { onLoaded(records, name ?? 'Reporte'); onClose() }} />
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function OrchardReportPage() {
+  const [saved,        setSaved]        = useState<SavedReport[]>(() => loadSavedReports())
+  const [activeReport, setActiveReport] = useState<SavedReport | null>(null)
+  const [records,      setRecords]      = useState<OrchardRecord[]>([])
+  const [filters,      setFilters]      = useState<FilterState>(EMPTY_FILTERS)
+  const [activeTab,    setActiveTab]    = useState<TabId>('dashboard')
+  const [drillDown,    setDrillDown]    = useState<{ records: OrchardRecord[]; label: string } | null>(null)
+  const [showUpload,   setShowUpload]   = useState(false)
+  const [showAddMore,  setShowAddMore]  = useState(false)
+
+  // ── Load a saved report ──────────────────────────────────────────────────
+  const handleLoad = useCallback((report: SavedReport) => {
+    setActiveReport(report)
+    setRecords(report.data)
+    setFilters(EMPTY_FILTERS)
+    setActiveTab('dashboard')
+  }, [])
+
+  // ── Delete a saved report ────────────────────────────────────────────────
+  const handleDelete = useCallback((id: string) => {
+    setSaved(prev => {
+      const next = prev.filter(r => r.id !== id)
+      saveSavedReports(next)
+      return next
+    })
+  }, [])
+
+  // ── New file uploaded ────────────────────────────────────────────────────
+  const handleNewRecords = useCallback((newRecords: OrchardRecord[], fileName?: string) => {
+    const name = fileName ?? 'Reporte'
+    const report = buildReport(newRecords, name)
+
+    // If we're already viewing a report, append records to it
+    if (activeReport) {
+      const updatedRecords = [...records, ...newRecords]
+      const updatedReport: SavedReport = {
+        ...activeReport,
+        records: updatedRecords.length,
+        periods: [...new Set(updatedRecords.map(r => r.sale_period))].sort(),
+        revenue: updatedRecords.reduce((s, r) => s + r.net_total, 0),
+        streams: updatedRecords.reduce((s, r) => s + r.quantity, 0),
+        data:    updatedRecords,
+      }
+      setSaved(prev => {
+        const next = prev.map(r => r.id === activeReport.id ? updatedReport : r)
+        saveSavedReports(next)
+        return next
+      })
+      setActiveReport(updatedReport)
+      setRecords(updatedRecords)
+    } else {
+      // Save as new report and open it
+      setSaved(prev => {
+        const next = [report, ...prev]
+        saveSavedReports(next)
+        return next
+      })
+      setActiveReport(report)
+      setRecords(report.data)
+      setFilters(EMPTY_FILTERS)
+      setActiveTab('dashboard')
+    }
+    setShowUpload(false)
+    setShowAddMore(false)
+  }, [activeReport, records])
+
+  // ── Back to library ──────────────────────────────────────────────────────
+  const handleBackToLibrary = useCallback(() => {
+    setActiveReport(null)
+    setRecords([])
+    setFilters(EMPTY_FILTERS)
+    setDrillDown(null)
+  }, [])
+
+  // ── Persist current report changes ───────────────────────────────────────
+  useEffect(() => {
+    if (!activeReport || records.length === 0) return
+    const updated: SavedReport = {
+      ...activeReport,
+      records: records.length,
+      periods: [...new Set(records.map(r => r.sale_period))].sort(),
+      revenue: records.reduce((s, r) => s + r.net_total, 0),
+      streams: records.reduce((s, r) => s + r.quantity, 0),
+      data:    records,
+    }
+    setSaved(prev => {
+      const next = prev.map(r => r.id === activeReport.id ? updated : r)
+      saveSavedReports(next)
+      return next
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records])
+
+  // ── Analytics ────────────────────────────────────────────────────────────
+  const filteredRecords   = useMemo(() => applyFilters(records, filters), [records, filters])
+  const breakdown         = useMemo(() => computeBreakdown(filteredRecords),          [filteredRecords])
+  const platformSummaries = useMemo(() => computePlatformSummaries(filteredRecords),  [filteredRecords])
+  const countrySummaries  = useMemo(() => computeCountrySummaries(filteredRecords),   [filteredRecords])
+  const matrix            = useMemo(() => computeMatrix(filteredRecords),             [filteredRecords])
+  const artistSummaries   = useMemo(() => computeArtistSummaries(filteredRecords),    [filteredRecords])
+  const trackSummaries    = useMemo(() => computeTrackSummaries(filteredRecords),     [filteredRecords])
+  const releaseSummaries  = useMemo(() => computeReleaseSummaries(filteredRecords),   [filteredRecords])
+  const noRoyaltyEntries  = useMemo(() => computeNoRoyaltyReport(filteredRecords),    [filteredRecords])
+  const reconciliation    = useMemo(() => computeReconciliation(filteredRecords),     [filteredRecords])
+  const rankings          = useMemo(() => computeRankings(filteredRecords),           [filteredRecords])
+  const dateRange         = useMemo(() => getDateRange(filteredRecords),              [filteredRecords])
+
+  // ── Library view (no report open) ───────────────────────────────────────
+  if (!activeReport) {
+    return (
+      <>
+        <LibraryView
+          saved={saved}
+          onLoad={handleLoad}
+          onDelete={handleDelete}
+          onNew={() => setShowUpload(true)}
+        />
+        <AnimatePresence>
+          {showUpload && (
+            <UploadModal
+              onLoaded={handleNewRecords}
+              onClose={() => setShowUpload(false)}
+            />
+          )}
+        </AnimatePresence>
+      </>
     )
   }
 
-  // ── Loaded view ─────────────────────────────────────────────────────────────
+  // ── Report view ──────────────────────────────────────────────────────────
+  const totalRevenue = breakdown.total.revenue
+  const totalStreams  = breakdown.total.streams
+
   return (
     <div className="min-h-full flex flex-col bg-white">
 
       {/* ── Header ── */}
       <div className="px-6 pt-5 pb-4 border-b border-border bg-white flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <BarChart2 className="w-5 h-5 text-primary" />
-          </div>
+          {/* Back button */}
+          <button
+            onClick={handleBackToLibrary}
+            className="w-9 h-9 rounded-xl bg-surface-2 hover:bg-surface-3 flex items-center justify-center transition-colors flex-shrink-0"
+            title="Volver a la biblioteca"
+          >
+            <FolderOpen className="w-4 h-4 text-text-secondary" />
+          </button>
           <div className="min-w-0">
-            <h1 className="text-lg font-bold text-text-primary leading-none">Orchard Analyzer</h1>
+            <h1 className="text-base font-bold text-text-primary leading-none truncate max-w-[320px]" title={activeReport.name}>
+              {activeReport.name}
+            </h1>
             <p className="text-text-muted text-xs mt-0.5">
               {records.length.toLocaleString()} registros
               {dateRange && (
@@ -179,55 +435,24 @@ export default function OrchardReportPage() {
           <div className="hidden sm:flex items-center gap-3 px-3 py-1.5 rounded-xl bg-surface-2 border border-border text-xs">
             <span className="text-text-muted">Ingresos</span>
             <span className="font-semibold text-text-primary">
-              ${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {fmtR(totalRevenue)}
             </span>
             <span className="w-px h-3 bg-border" />
             <span className="text-text-muted">Streams</span>
             <span className="font-semibold text-text-primary">{totalStreams.toLocaleString()}</span>
           </div>
 
-          <button
-            onClick={() => exportCSV(filteredRecords)}
-            className="btn-secondary text-xs py-2 px-3 gap-1.5"
-          >
+          <button onClick={() => exportCSV(filteredRecords)} className="btn-secondary text-xs py-2 px-3 gap-1.5">
             <Download className="w-3.5 h-3.5" />
             Exportar
           </button>
 
-          <button
-            onClick={() => setShowUpload(v => !v)}
-            className={showUpload ? 'btn-primary text-xs py-2 px-3 gap-1.5' : 'btn-secondary text-xs py-2 px-3 gap-1.5'}
-          >
-            <Upload className="w-3.5 h-3.5" />
+          <button onClick={() => setShowAddMore(true)} className="btn-secondary text-xs py-2 px-3 gap-1.5">
+            <Plus className="w-3.5 h-3.5" />
             Agregar
-          </button>
-
-          <button
-            onClick={handleClearAll}
-            className="btn-ghost text-xs py-2 px-3 gap-1.5 text-error hover:bg-error/5"
-            title="Borrar todo"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
-
-      {/* ── Upload panel (collapsible) ── */}
-      <AnimatePresence>
-        {showUpload && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden border-b border-border"
-          >
-            <div className="px-6 py-4 bg-surface-2">
-              <OrchardUploadPanel onRecordsLoaded={handleRecordsLoaded} compact />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* ── Filter bar ── */}
       <OrchardFilterBar filters={filters} records={records} onFiltersChange={setFilters} />
@@ -266,41 +491,26 @@ export default function OrchardReportPage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              {activeTab === 'dashboard' && (
-                <OrchardDashboardTab
-                  breakdown={breakdown} rankings={rankings} dateRange={dateRange}
-                  allRecords={filteredRecords} onDrillDown={handleMetricClick}
-                />
-              )}
-              {activeTab === 'platforms' && (
-                <OrchardPlatformsTab
-                  platformSummaries={platformSummaries} countrySummaries={countrySummaries}
-                  allRecords={filteredRecords} onDrillDown={handleMetricClick}
-                />
-              )}
-              {activeTab === 'countries' && (
-                <OrchardCountriesTab
-                  matrix={matrix} allRecords={filteredRecords} onDrillDown={handleMetricClick}
-                />
-              )}
-              {activeTab === 'catalog' && (
-                <OrchardCatalogTab
-                  artistSummaries={artistSummaries} trackSummaries={trackSummaries}
-                  releaseSummaries={releaseSummaries} allRecords={filteredRecords} onDrillDown={handleMetricClick}
-                />
-              )}
-              {activeTab === 'noroyalty' && (
-                <OrchardNoRoyaltyTab
-                  noRoyaltyEntries={noRoyaltyEntries} allRecords={filteredRecords} onDrillDown={handleMetricClick}
-                />
-              )}
-              {activeTab === 'reconciliation' && (
-                <OrchardReconciliationTab reconciliation={reconciliation} />
-              )}
+              {activeTab === 'dashboard'      && <OrchardDashboardTab     breakdown={breakdown} rankings={rankings} dateRange={dateRange} allRecords={filteredRecords} onDrillDown={(r,l) => setDrillDown({records:r,label:l})} />}
+              {activeTab === 'platforms'      && <OrchardPlatformsTab     platformSummaries={platformSummaries} countrySummaries={countrySummaries} allRecords={filteredRecords} onDrillDown={(r,l) => setDrillDown({records:r,label:l})} />}
+              {activeTab === 'countries'      && <OrchardCountriesTab     matrix={matrix} allRecords={filteredRecords} onDrillDown={(r,l) => setDrillDown({records:r,label:l})} />}
+              {activeTab === 'catalog'        && <OrchardCatalogTab       artistSummaries={artistSummaries} trackSummaries={trackSummaries} releaseSummaries={releaseSummaries} allRecords={filteredRecords} onDrillDown={(r,l) => setDrillDown({records:r,label:l})} />}
+              {activeTab === 'noroyalty'      && <OrchardNoRoyaltyTab     noRoyaltyEntries={noRoyaltyEntries} allRecords={filteredRecords} onDrillDown={(r,l) => setDrillDown({records:r,label:l})} />}
+              {activeTab === 'reconciliation' && <OrchardReconciliationTab reconciliation={reconciliation} />}
             </motion.div>
           </AnimatePresence>
         </div>
       </div>
+
+      {/* ── Add more files modal ── */}
+      <AnimatePresence>
+        {showAddMore && (
+          <UploadModal
+            onLoaded={handleNewRecords}
+            onClose={() => setShowAddMore(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ── Drill-down drawer ── */}
       {drillDown && (

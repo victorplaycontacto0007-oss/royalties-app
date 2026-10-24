@@ -162,8 +162,13 @@ function CountryRow({ cs, allRecords, onDrillDown }: CountryRowProps) {
         className="text-gray-700 font-mono"
       />
 
-      {/* Promedio efectivo — not computed per country, show dash */}
-      <td className="px-3 py-1.5 text-right text-gray-400 italic text-xs">—</td>
+      {/* Efect./1000 — calculado por país */}
+      <td className="px-3 py-1.5 text-right text-xs font-mono whitespace-nowrap">
+        {bd.total.streams > 0
+          ? <span className="text-primary font-semibold">${(bd.total.revenue / bd.total.streams * 1000).toFixed(4)}</span>
+          : <span className="text-text-muted">—</span>
+        }
+      </td>
     </tr>
   )
 }
