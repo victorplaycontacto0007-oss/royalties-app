@@ -98,11 +98,13 @@ function svgDonut(
 
 // ─── Tabla HTML sortable ──────────────────────────────────────────────────────
 
+// htmlCols: column indices whose content is raw HTML (not escaped)
 function htmlTable(
   id: string,
   headers: string[],
   rows: (string | number)[][],
   numericCols: number[] = [],
+  htmlCols:    number[] = [],
 ): string {
   const thead = `<thead><tr>${headers.map((h, i) =>
     `<th onclick="sortTable('${id}',${i})" class="sortable">${escHtml(h)} <span class="sort-icon">⇅</span></th>`
@@ -111,7 +113,10 @@ function htmlTable(
   const tbody = `<tbody>${rows.map(row =>
     `<tr>${row.map((cell, i) => {
       const cls = numericCols.includes(i) ? ' class="num"' : ''
-      return `<td${cls}>${escHtml(String(cell ?? ''))}</td>`
+      const content = htmlCols.includes(i)
+        ? String(cell ?? '')          // raw HTML — do not escape
+        : escHtml(String(cell ?? '')) // plain text — escape
+      return `<td${cls}>${content}</td>`
     }).join('')}</tr>`
   ).join('')}</tbody>`
 
@@ -616,7 +621,7 @@ export function generateOrchardArtistHTML(
     <div class="table-wrap">
       ${htmlTable('tbl-songs',
         ['Canción','ISRC','Plataformas','Streams','Ingresos brutos','$/1,000',`Para ${artist} (${split.artistPct}%)`,'% del total'],
-        songRows, [3,4,5,6]
+        songRows, [3,4,5,6], [7]
       ).replace('</table>', songTfoot + '</table>')}
     </div>
   </div>
