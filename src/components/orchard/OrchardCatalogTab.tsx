@@ -3,10 +3,11 @@
  */
 
 import { useState, useMemo } from 'react'
-import { ChevronUp, ChevronDown, ChevronsUpDown, FileSpreadsheet, X } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronsUpDown, FileSpreadsheet, X, Globe, Eye } from 'lucide-react'
 import type { ArtistSummary, TrackSummary, ReleaseSummary } from '../../lib/orchard-analytics'
 import type { OrchardRecord } from '../../royalty-engine/StreamTypeClassifier'
 import { exportOrchardArtistReport } from '../../lib/splits-export'
+import { generateOrchardArtistHTML, downloadOrchardHTML } from '../../lib/orchard-html-report'
 
 interface OrchardCatalogTabProps {
   artistSummaries:  ArtistSummary[]
@@ -50,6 +51,7 @@ export default function OrchardCatalogTab({
   const [reportArtist, setReportArtist] = useState('')
   const [artistPct, setArtistPct] = useState(70)
   const [labelName, setLabelName] = useState('Sello')
+  const [previewHTML, setPreviewHTML] = useState<string | null>(null)
 
   const VIEW_OPTIONS: { id: ViewBy; label: string }[] = [
     { id: 'track',    label: 'Canción'     },
@@ -170,7 +172,7 @@ export default function OrchardCatalogTab({
   return (
     <div className="card flex flex-col gap-4">
       {/* ── Filter row ── */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 w-full">
         <select
           value={platformFilter} onChange={e => setPlatformFilter(e.target.value)}
           className="input w-auto text-sm py-2 min-w-[160px]"
@@ -199,16 +201,16 @@ export default function OrchardCatalogTab({
         )}
 
         {/* ── Botón Generar Reporte ── */}
-        <div className="ml-auto">
+        <div className="flex-1 flex justify-end">
           <button
             onClick={() => {
               setReportArtist(artistFilter !== 'all' ? artistFilter : (artists[0] ?? ''))
               setReportModal(true)
             }}
-            className="btn-primary text-xs py-2 px-3 gap-1.5"
+            className="btn-primary text-sm gap-2"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            Generar reporte
+            <FileSpreadsheet className="w-4 h-4" />
+            Generar reporte de artista
           </button>
         </div>
       </div>
@@ -417,29 +419,97 @@ export default function OrchardCatalogTab({
               })()}
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-border flex items-center justify-end gap-3">
-              <button onClick={() => setReportModal(false)} className="btn-secondary text-sm">
-                Cancelar
+            {/* Footer — tres acciones */}
+            <div className="px-6 py-4 border-t border-border flex flex-col gap-2">
+              {/* Row 1: Ver preview + Descargar HTML */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (!reportArtist) return
+                    const html = generateOrchardArtistHTML(reportArtist, allRecords, {
+                      artistPct, labelPct: 100 - artistPct, labelName: labelName || 'Sello',
+                    })
+                    setPreviewHTML(html)
+                  }}
+                  className="btn-secondary text-sm gap-2 flex-1"
+                  disabled={!reportArtist}
+                >
+                  <Eye className="w-4 h-4" />
+                  Ver reporte web
+                </button>
+                <button
+                  onClick={() => {
+                    if (!reportArtist) return
+                    downloadOrchardHTML(reportArtist, allRecords, {
+                      artistPct, labelPct: 100 - artistPct, labelName: labelName || 'Sello',
+                    })
+                  }}
+                  className="btn-secondary text-sm gap-2 flex-1"
+                  disabled={!reportArtist}
+                >
+                  <Globe className="w-4 h-4" />
+                  Descargar HTML
+                </button>
+              </div>
+              {/* Row 2: Excel + Cancelar */}
+              <div className="flex items-center gap-2">
+                <button onClick={() => setReportModal(false)} className="btn-ghost text-sm">
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    if (!reportArtist) return
+                    exportOrchardArtistReport(reportArtist, allRecords, {
+                      artistPct, labelPct: 100 - artistPct, labelName: labelName || 'Sello',
+                    })
+                    setReportModal(false)
+                  }}
+                  className="btn-primary text-sm gap-2 flex-1"
+                  disabled={!reportArtist}
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Descargar Excel (.xlsx)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Vista previa HTML en iframe ── */}
+      {previewHTML && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-white">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-white shadow-sm flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Globe className="w-5 h-5 text-primary" />
+              <span className="font-semibold text-text-primary text-sm">
+                Vista previa — {reportArtist}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => downloadOrchardHTML(reportArtist, allRecords, {
+                  artistPct, labelPct: 100 - artistPct, labelName: labelName || 'Sello',
+                })}
+                className="btn-primary text-sm gap-2"
+              >
+                <Globe className="w-4 h-4" />
+                Descargar HTML
               </button>
               <button
-                onClick={() => {
-                  if (!reportArtist) return
-                  exportOrchardArtistReport(reportArtist, allRecords, {
-                    artistPct,
-                    labelPct:  100 - artistPct,
-                    labelName: labelName || 'Sello',
-                  })
-                  setReportModal(false)
-                }}
-                className="btn-primary text-sm gap-2"
-                disabled={!reportArtist}
+                onClick={() => setPreviewHTML(null)}
+                className="p-1.5 rounded-lg hover:bg-surface-2 text-text-muted"
               >
-                <FileSpreadsheet className="w-4 h-4" />
-                Descargar Excel (.xlsx)
+                <X className="w-4 h-4" />
               </button>
             </div>
           </div>
+          <iframe
+            srcDoc={previewHTML}
+            className="flex-1 w-full border-0"
+            title={`Reporte ${reportArtist}`}
+            sandbox="allow-scripts"
+          />
         </div>
       )}
     </div>
