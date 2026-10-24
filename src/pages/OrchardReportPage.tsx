@@ -64,6 +64,37 @@ interface SavedReport {
 
 const LS_REPORTS_KEY = 'orchard_saved_reports_v1'
 
+// Only persist the fields we need to reconstruct analytics — drops heavy
+// unused fields to stay within the ~5 MB localStorage quota.
+function compactRecord(r: OrchardRecord): OrchardRecord {
+  return {
+    net_total:            r.net_total,
+    gross_total:          0,
+    taxes:                0,
+    channel_costs:        0,
+    other_costs:          0,
+    currency:             r.currency,
+    artist:               r.artist,
+    track:                r.track,
+    album:                r.album,
+    upc:                  r.upc,
+    isrc:                 r.isrc,
+    platform:             r.platform,
+    country:              r.country,
+    quantity:             r.quantity,
+    sale_period:          r.sale_period,
+    artist_name:          r.artist,
+    song_title:           r.track,
+    album_name:           r.album,
+    store:                r.platform,
+    earnings_usd:         r.net_total,
+    rawStreamType:        r.rawStreamType,
+    normalizedStreamType: r.normalizedStreamType,
+    rowIndex:             r.rowIndex,
+    sourceFile:           r.sourceFile,
+  }
+}
+
 function loadSavedReports(): SavedReport[] {
   try {
     const raw = localStorage.getItem(LS_REPORTS_KEY)
@@ -72,7 +103,21 @@ function loadSavedReports(): SavedReport[] {
 }
 
 function saveSavedReports(reports: SavedReport[]) {
-  try { localStorage.setItem(LS_REPORTS_KEY, JSON.stringify(reports)) } catch {}
+  try {
+    // Save compacted records to reduce storage size
+    const compact = reports.map(r => ({
+      ...r,
+      data: r.data.map(compactRecord),
+    }))
+    localStorage.setItem(LS_REPORTS_KEY, JSON.stringify(compact))
+  } catch (e) {
+    // If quota exceeded, try saving without the data arrays (metadata only)
+    try {
+      const metaOnly = reports.map(r => ({ ...r, data: [] }))
+      localStorage.setItem(LS_REPORTS_KEY, JSON.stringify(metaOnly))
+      console.warn('[Orchard] localStorage quota exceeded — saved metadata only. Data will reload from file.')
+    } catch { /* ignore */ }
+  }
 }
 
 function buildReport(records: OrchardRecord[], fileName: string): SavedReport {
@@ -338,23 +383,8 @@ export default function OrchardReportPage() {
   }, [])
 
   // ── Persist current report changes ───────────────────────────────────────
-  useEffect(() => {
-    if (!activeReport || records.length === 0) return
-    const updated: SavedReport = {
-      ...activeReport,
-      records: records.length,
-      periods: [...new Set(records.map(r => r.sale_period))].sort(),
-      revenue: records.reduce((s, r) => s + r.net_total, 0),
-      streams: records.reduce((s, r) => s + r.quantity, 0),
-      data:    records,
-    }
-    setSaved(prev => {
-      const next = prev.map(r => r.id === activeReport.id ? updated : r)
-      saveSavedReports(next)
-      return next
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records])
+  // NOTE: We do NOT auto-persist on every records change to avoid loops.
+  // Persistence happens explicitly in handleNewRecords and handleDelete only.
 
   // ── Analytics ────────────────────────────────────────────────────────────
   const filteredRecords   = useMemo(() => applyFilters(records, filters), [records, filters])
