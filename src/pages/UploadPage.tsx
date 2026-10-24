@@ -117,6 +117,13 @@ export default function UploadPage() {
         ? allRows.filter(r => selNorm.has(r.sale_period))
         : allRows
 
+      // Debug: log period matching info
+      console.log('[UploadPage] allRows:', allRows.length)
+      console.log('[UploadPage] selNorm:', [...selNorm])
+      console.log('[UploadPage] sample sale_periods:', [...new Set(allRows.slice(0,5).map(r => r.sale_period))])
+      console.log('[UploadPage] rows after filter:', rows.length)
+      console.log('[UploadPage] parsedStats:', parsedStats)
+
       if (rows.length === 0) throw new Error('No se encontraron datos válidos para los períodos seleccionados.')
 
       // 4. Insert in parallel batches
