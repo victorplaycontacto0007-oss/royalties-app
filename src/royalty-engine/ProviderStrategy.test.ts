@@ -26,6 +26,8 @@ const KNOWN_V2_PROVIDERS: ProviderName[] = [
   'Too Lost', 'Amuse', 'Spotify Direct', 'Apple Music Reports',
   'Amazon Music Reports', 'Tidal Reports', 'YouTube Content ID',
   'TikTok', 'Meta',
+  // Label-level Orchard format providers
+  'Flow Independiente', 'Global Sound Stars',
 ]
 
 // V1 compat names (still have entries)
@@ -36,7 +38,7 @@ const V1_COMPAT: ProviderName[] = ['Spotify', 'Apple Music', 'Amazon Music', 'Ti
 // ---------------------------------------------------------------------------
 
 describe('PROVIDER_STRATEGIES shape (V2)', () => {
-  it('has entries for all 21 V2 providers + Dinastia + UNKNOWN + 5 V1 aliases', () => {
+  it('has entries for all 23 V2 providers + Dinastia + UNKNOWN + 5 V1 aliases', () => {
     for (const p of [...KNOWN_V2_PROVIDERS, 'Dinast\u00eda' as ProviderName, 'UNKNOWN' as ProviderName]) {
       expect(PROVIDER_STRATEGIES[p as string]).toBeDefined()
     }

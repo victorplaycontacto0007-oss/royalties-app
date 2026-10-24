@@ -39,6 +39,12 @@ const PROVIDERS: Array<{ name: ProviderName; signals: string[] }> = [
   { name: 'Amuse',          signals: ['amuse'] },
   { name: 'RouteNote',      signals: ['routenote'] },
   { name: 'UnitedMasters',  signals: ['unitedmasters'] },
+  // --- Flow Independiente / Global Sound Stars (label reports via The Orchard) ---
+  // These files use the same 24-column format but arrive with the label name
+  // in the filename instead of 'orchard'. They need a different payment column
+  // ('revenue' vs 'net_revenue'), so they must be detected before The Orchard.
+  { name: 'Flow Independiente', signals: ['flowindependiente'] },
+  { name: 'Global Sound Stars', signals: ['globalsoundstars'] },
   // --- The Orchard ---
   // Filename match ('orchard') takes priority; header-based detection is a
   // fallback for files whose name does not contain 'orchard'. Header signals:
@@ -119,6 +125,18 @@ export function detectProvider(
   ]
   const hasTransactionType = TRANSACTION_TYPE_ALIASES.some(a => headerStr.includes(a))
   const hasPlatform = PLATFORM_LIKE_SIGNALS.some(p => headerStr.includes(p))
+
+  // --- Flow Independiente / Global Sound Stars header-based fallback ---
+  // Files with LABEL IMPRINT + STATEMENT PERIOD + REVENUE are the 24-column
+  // label report format even when the filename doesn't contain the label name.
+  const hasLabelImprint    = headerStr.includes('labelimprint')   || headerStr.includes('LABEL IMPRINT')
+  const hasRevenue         = headerStr.includes('revenue')        || headerStr.includes('REVENUE')
+  const hasStatementPeriod = headerStr.includes('statementperiod')|| headerStr.includes('STATEMENT PERIOD')
+
+  if (hasLabelImprint && hasRevenue && hasStatementPeriod) {
+    logger?.info('Proveedor detectado: Flow Independiente (header fallback — label report format)')
+    return 'Flow Independiente'
+  }
 
   if (hasTransactionType && hasPlatform) {
     logger?.info('Proveedor detectado: The Orchard')

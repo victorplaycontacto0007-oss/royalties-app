@@ -112,7 +112,14 @@ const FREE_TRIAL_PATTERNS: string[] = [
 /** Requirement 3.2 */
 const FREE_AD_PATTERNS: string[] = [
   'ad-supported audio stream',
+  'ad supported audio stream',
+  'ad supported audio streams from art track',
+  'ad supported audio streams from ugc',
+  'ad supported streams',
+  'ad-supported audio streams',
   'ad supported',
+  'short-form video user generated',
+  'short form video user generated',
   'free',
   'avod',
   'ad-supported',
@@ -121,6 +128,11 @@ const FREE_AD_PATTERNS: string[] = [
 /** Requirement 3.1 */
 const FULL_PAY_PATTERNS: string[] = [
   'subscription audio stream',
+  'subscription audio streams from art track',
+  'subscription streams from art track',
+  'subscription audio streams from ugc',
+  'subscription streams from audio ugc',
+  'subscription streams from ugc',
   'premium',
   'paid subscription',
   'full pay',

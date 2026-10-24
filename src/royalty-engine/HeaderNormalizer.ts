@@ -18,7 +18,10 @@ const ACCENT_MAP: Record<string, string> = {
 
 export function normalizeHeader(raw: string): string {
   if (!raw) return ''
-  let s = raw.toLowerCase()
+  // Strip UTF-8 BOM (U+FEFF) that may appear in the first cell of CSV files
+  // exported from Excel or other tools. Also strip surrounding double-quotes
+  // that some CSV exporters embed directly in the header text (e.g. '"REVENUE"').
+  let s = raw.replace(/^\uFEFF/, '').replace(/^"(.*)"$/, '$1').toLowerCase()
   // Replace accented chars
   for (const [from, to] of Object.entries(ACCENT_MAP)) {
     s = s.split(from).join(to)

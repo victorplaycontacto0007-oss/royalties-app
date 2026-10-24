@@ -83,6 +83,8 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'currency', 'currencycode', 'cur', 'curr',
     'paymentcurrency', 'reportingcurrency',
     'clientcurrency',
+    // Flow Independiente / Global Sound Stars
+    'accountcurrency',
   ],
   currency_net_total: [
     'nettotalclientcurrency',
@@ -94,6 +96,8 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'artistname', 'artist_name', 'trackartists',
     'artist', 'performer', 'act',
     'recordingartist', 'mainartist', 'primaryartist', 'labelartist',
+    // Flow Independiente / Global Sound Stars: track-level artist
+    'trackartist',
   ],
   track: [
     'tracktitle', 'track_title', 'songtitle', 'song_title',
@@ -105,9 +109,14 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'albumtitle', 'album_title', 'albumname', 'album_name',
     'releasetitle', 'releasename', 'producttitle',
     'album', 'release',
+    // Flow Independiente / Global Sound Stars: "PRODUCT" is the album/release.
+    // 'product' exact-matches 'PRODUCT' but NOT 'PRODUCT ARTIST' ('productartist').
+    'product',
   ],
   upc: [
     'upc', 'displayupc', 'productupc', 'barcode',
+    // Flow Independiente / Global Sound Stars
+    'manufacturerupc',
   ],
   isrc: [
     'isrc', 'trackisrc', 'recordingisrc',
@@ -143,6 +152,9 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'reportingdate', 'reportingmonth', 'reportmonth',
     'salemonth', 'salesperiod', 'saleperiod', 'sale_period',
     'reportingperiod', 'incomeperiod', 'billingperiod',
+    // Flow Independiente / Global Sound Stars: "STATEMENT PERIOD" is the period.
+    // Listed before 'transactiondate' so it wins when both columns exist.
+    'statementperiod',
     'settlementdate', 'paymentdate', 'transactiondate', 'reportdate',
     // Ditto: use start_date
     'startdate', 'start_date',

@@ -32,6 +32,8 @@ export type ProviderName =
   | 'Too Lost'
   | 'Amuse'
   | 'The Orchard'
+  | 'Flow Independiente'    // Label distributed via The Orchard (REVENUE column)
+  | 'Global Sound Stars'    // Label distributed via The Orchard (REVENUE column)
   | 'Spotify Direct'       // renamed from 'Spotify'
   | 'Apple Music Reports'  // renamed from 'Apple Music'
   | 'Amazon Music Reports' // renamed from 'Amazon Music'
@@ -104,6 +106,12 @@ export const PROVIDER_STRATEGIES: Record<string, ProviderStrategyEntry> = {
                             earningsCandidates: ['netrevenue'] },
   'The Orchard':          { paymentColumn: 'net_revenue',               defaultCurrency: 'USD',
                             earningsCandidates: ['netrevenue', 'revenue', 'royalty', 'amount'] },
+  // Flow Independiente and Global Sound Stars are label-level reports delivered
+  // through The Orchard's infrastructure. Their payment column is "REVENUE".
+  'Flow Independiente':   { paymentColumn: 'revenue',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['revenue', 'netrevenue', 'royalty'] },
+  'Global Sound Stars':   { paymentColumn: 'revenue',                   defaultCurrency: 'USD',
+                            earningsCandidates: ['revenue', 'netrevenue', 'royalty'] },
   'Spotify Direct':       { paymentColumn: 'royalties',                 defaultCurrency: 'USD',
                             earningsCandidates: ['royalty', 'revenue'] },
   'Apple Music Reports':  { paymentColumn: 'royalty',                   defaultCurrency: 'USD',
