@@ -47,11 +47,34 @@ export default function OrchardCatalogTab({
   const [sortDir,  setSortDir]  = useState<SortDir>('desc')
 
   // ── Reporte modal state ───────────────────────────────────────────────────
-  const [reportModal, setReportModal] = useState(false)
+  const [reportModal,  setReportModal]  = useState(false)
   const [reportArtist, setReportArtist] = useState('')
-  const [artistPct, setArtistPct] = useState(70)
-  const [labelName, setLabelName] = useState('Sello')
-  const [previewHTML, setPreviewHTML] = useState<string | null>(null)
+  const [artistPct,    setArtistPct]    = useState(70)
+  const [labelName,    setLabelName]    = useState('Sello')
+  const [previewHTML,  setPreviewHTML]  = useState<string | null>(null)
+
+  // Logo guardado en localStorage como base64
+  const LS_LOGO_KEY = 'orchard_label_logo_v1'
+  const [logoBase64, setLogoBase64] = useState<string>(() => {
+    try { return localStorage.getItem(LS_LOGO_KEY) ?? '' } catch { return '' }
+  })
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const b64 = reader.result as string
+      setLogoBase64(b64)
+      try { localStorage.setItem(LS_LOGO_KEY, b64) } catch { /* ignore */ }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const removeLogo = () => {
+    setLogoBase64('')
+    try { localStorage.removeItem(LS_LOGO_KEY) } catch { /* ignore */ }
+  }
 
   const VIEW_OPTIONS: { id: ViewBy; label: string }[] = [
     { id: 'track',    label: 'Canción'     },
@@ -392,6 +415,34 @@ export default function OrchardCatalogTab({
                 />
               </div>
 
+              {/* Logo del sello */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-text-secondary">Logo del sello (aparece en la portada)</label>
+                {logoBase64 ? (
+                  <div className="flex items-center gap-3 p-3 bg-surface-2 rounded-xl border border-border">
+                    <img src={logoBase64} alt="Logo" className="h-10 w-auto max-w-[120px] object-contain rounded" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-text-primary text-xs font-medium">Logo guardado</p>
+                      <p className="text-text-muted text-[11px]">Se usará en todos los reportes</p>
+                    </div>
+                    <button onClick={removeLogo} className="p-1.5 rounded-lg hover:bg-error/10 text-text-muted hover:text-error transition-colors">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex items-center gap-3 p-3 bg-surface-2 rounded-xl border border-dashed border-border cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors">
+                    <div className="w-8 h-8 rounded-lg bg-surface-3 flex items-center justify-center flex-shrink-0">
+                      <FileSpreadsheet className="w-4 h-4 text-text-muted" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-text-primary text-xs font-medium">Subir logo</p>
+                      <p className="text-text-muted text-[11px]">PNG, JPG o SVG · se guarda localmente</p>
+                    </div>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                  </label>
+                )}
+              </div>
+
               {/* Preview */}
               {reportArtist && (() => {
                 const recs = allRecords.filter(r => r.artist === reportArtist)
@@ -428,7 +479,7 @@ export default function OrchardCatalogTab({
                     if (!reportArtist) return
                     const html = generateOrchardArtistHTML(reportArtist, allRecords, {
                       artistPct, labelPct: 100 - artistPct, labelName: labelName || 'Sello',
-                    })
+                    }, logoBase64)
                     setPreviewHTML(html)
                   }}
                   className="btn-secondary text-sm gap-2 flex-1"
@@ -442,7 +493,7 @@ export default function OrchardCatalogTab({
                     if (!reportArtist) return
                     downloadOrchardHTML(reportArtist, allRecords, {
                       artistPct, labelPct: 100 - artistPct, labelName: labelName || 'Sello',
-                    })
+                    }, logoBase64)
                   }}
                   className="btn-secondary text-sm gap-2 flex-1"
                   disabled={!reportArtist}
@@ -490,7 +541,7 @@ export default function OrchardCatalogTab({
               <button
                 onClick={() => downloadOrchardHTML(reportArtist, allRecords, {
                   artistPct, labelPct: 100 - artistPct, labelName: labelName || 'Sello',
-                })}
+                }, logoBase64)}
                 className="btn-primary text-sm gap-2"
               >
                 <Globe className="w-4 h-4" />

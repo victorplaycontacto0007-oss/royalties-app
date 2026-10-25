@@ -301,6 +301,7 @@ export function generateOrchardArtistHTML(
   artist:  string,
   records: OrchardRecord[],
   split:   ArtistSplit,
+  logoBase64?: string,
 ): string {
   const artistRecs = records.filter(r => r.artist === artist)
   if (artistRecs.length === 0) return '<html><body>Sin datos</body></html>'
@@ -488,6 +489,7 @@ export function generateOrchardArtistHTML(
 
   <!-- ── COVER ── -->
   <div class="cover" data-section="cover" id="cover">
+    ${logoBase64 ? `<img src="${logoBase64}" alt="${escHtml(labelName)}" style="height:48px;width:auto;object-fit:contain;margin-bottom:16px;filter:brightness(0) invert(1);opacity:0.9;">` : ''}
     <div class="cover-label">Royalties Music Analytics · Liquidación de regalías</div>
     <div class="cover-artist">${escHtml(artist)}</div>
     <div class="cover-label2">${escHtml(labelName)}</div>
@@ -711,8 +713,9 @@ export function downloadOrchardHTML(
   artist:  string,
   records: OrchardRecord[],
   split:   ArtistSplit,
+  logoBase64?: string,
 ) {
-  const html     = generateOrchardArtistHTML(artist, records, split)
+  const html     = generateOrchardArtistHTML(artist, records, split, logoBase64)
   const blob     = new Blob([html], { type: 'text/html;charset=utf-8' })
   const url      = URL.createObjectURL(blob)
   const periods  = [...new Set(records.filter(r => r.artist === artist).map(r => r.sale_period))].sort()
