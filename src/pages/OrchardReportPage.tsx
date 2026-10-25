@@ -60,64 +60,100 @@ interface SavedReport {
   data:      OrchardRecord[] // actual records
 }
 
-// ─── Storage helpers ──────────────────────────────────────────────────────────
+// ─── Storage helpers — IndexedDB para los datos, localStorage para metadata ───
 
-const LS_REPORTS_KEY = 'orchard_saved_reports_v1'
+const DB_NAME    = 'orchard_reports_db'
+const DB_VERSION = 1
+const STORE_NAME = 'reports'
+const LS_META_KEY = 'orchard_reports_meta_v1'
 
-// Only persist the fields we need to reconstruct analytics — drops heavy
-// unused fields to stay within the ~5 MB localStorage quota.
-function compactRecord(r: OrchardRecord): OrchardRecord {
-  return {
-    net_total:            r.net_total,
-    gross_total:          0,
-    taxes:                0,
-    channel_costs:        0,
-    other_costs:          0,
-    currency:             r.currency,
-    artist:               r.artist,
-    track:                r.track,
-    album:                r.album,
-    upc:                  r.upc,
-    isrc:                 r.isrc,
-    platform:             r.platform,
-    country:              r.country,
-    quantity:             r.quantity,
-    sale_period:          r.sale_period,
-    artist_name:          r.artist,
-    song_title:           r.track,
-    album_name:           r.album,
-    store:                r.platform,
-    earnings_usd:         r.net_total,
-    rawStreamType:        r.rawStreamType,
-    normalizedStreamType: r.normalizedStreamType,
-    rowIndex:             r.rowIndex,
-    sourceFile:           r.sourceFile,
+interface ReportMeta {
+  id:      string
+  name:    string
+  savedAt: string
+  records: number
+  periods: string[]
+  revenue: number
+  streams: number
+}
+
+// Open IndexedDB
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(STORE_NAME, { keyPath: 'id' })
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror   = () => reject(req.error)
+  })
+}
+
+async function saveReportData(report: SavedReport): Promise<void> {
+  try {
+    const db    = await openDB()
+    const tx    = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    store.put(report)
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror    = () => reject(tx.error)
+    })
+  } catch (e) {
+    console.warn('[Orchard] IndexedDB save failed:', e)
   }
 }
 
-function loadSavedReports(): SavedReport[] {
+async function loadReportData(id: string): Promise<OrchardRecord[]> {
   try {
-    const raw = localStorage.getItem(LS_REPORTS_KEY)
-    return raw ? (JSON.parse(raw) as SavedReport[]) : []
+    const db    = await openDB()
+    const tx    = db.transaction(STORE_NAME, 'readonly')
+    const store = tx.objectStore(STORE_NAME)
+    return new Promise((resolve, reject) => {
+      const req = store.get(id)
+      req.onsuccess = () => resolve((req.result as SavedReport)?.data ?? [])
+      req.onerror   = () => reject(req.error)
+    })
   } catch { return [] }
 }
 
-function saveSavedReports(reports: SavedReport[]) {
+async function deleteReportData(id: string): Promise<void> {
   try {
-    // Save compacted records to reduce storage size
-    const compact = reports.map(r => ({
-      ...r,
-      data: r.data.map(compactRecord),
+    const db    = await openDB()
+    const tx    = db.transaction(STORE_NAME, 'readwrite')
+    tx.objectStore(STORE_NAME).delete(id)
+  } catch { /* ignore */ }
+}
+
+async function loadAllReportMetas(): Promise<SavedReport[]> {
+  try {
+    const db    = await openDB()
+    const tx    = db.transaction(STORE_NAME, 'readonly')
+    const store = tx.objectStore(STORE_NAME)
+    return new Promise((resolve, reject) => {
+      const req = store.getAll()
+      req.onsuccess = () => resolve(req.result as SavedReport[] ?? [])
+      req.onerror   = () => reject(req.error)
+    })
+  } catch { return [] }
+}
+
+// Synchronous meta list (just IDs + metadata, no data arrays) for the library view
+function loadSavedMetas(): ReportMeta[] {
+  try {
+    const raw = localStorage.getItem(LS_META_KEY)
+    return raw ? (JSON.parse(raw) as ReportMeta[]) : []
+  } catch { return [] }
+}
+
+function saveMetas(reports: SavedReport[]) {
+  try {
+    const metas: ReportMeta[] = reports.map(r => ({
+      id: r.id, name: r.name, savedAt: r.savedAt,
+      records: r.records, periods: r.periods, revenue: r.revenue, streams: r.streams,
     }))
-    localStorage.setItem(LS_REPORTS_KEY, JSON.stringify(compact))
-  } catch (e) {
-    // If quota exceeded, try saving without the data arrays (metadata only)
-    try {
-      const metaOnly = reports.map(r => ({ ...r, data: [] }))
-      localStorage.setItem(LS_REPORTS_KEY, JSON.stringify(metaOnly))
-      console.warn('[Orchard] localStorage quota exceeded — saved metadata only. Data will reload from file.')
-    } catch { /* ignore */ }
-  }
+    localStorage.setItem(LS_META_KEY, JSON.stringify(metas))
+  } catch { /* ignore */ }
 }
 
 function buildReport(records: OrchardRecord[], fileName: string): SavedReport {
@@ -309,7 +345,7 @@ function UploadModal({ onLoaded, onClose }: {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function OrchardReportPage() {
-  const [saved,        setSaved]        = useState<SavedReport[]>(() => loadSavedReports())
+  const [saved,        setSaved]        = useState<SavedReport[]>([])
   const [activeReport, setActiveReport] = useState<SavedReport | null>(null)
   const [records,      setRecords]      = useState<OrchardRecord[]>([])
   const [filters,      setFilters]      = useState<FilterState>(EMPTY_FILTERS)
@@ -318,30 +354,38 @@ export default function OrchardReportPage() {
   const [showUpload,   setShowUpload]   = useState(false)
   const [showAddMore,  setShowAddMore]  = useState(false)
 
+  // Load saved report metas from IndexedDB on mount
+  useEffect(() => {
+    loadAllReportMetas().then(all => {
+      const sorted = [...all].sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+      setSaved(sorted)
+    })
+  }, [])
+
   // ── Load a saved report ──────────────────────────────────────────────────
-  const handleLoad = useCallback((report: SavedReport) => {
-    setActiveReport(report)
-    setRecords(report.data)
+  const handleLoad = useCallback(async (report: SavedReport) => {
+    // Data may already be in the object (just loaded) or need fetching from IDB
+    const data = report.data.length > 0
+      ? report.data
+      : await loadReportData(report.id)
+    setActiveReport({ ...report, data })
+    setRecords(data)
     setFilters(EMPTY_FILTERS)
     setActiveTab('dashboard')
   }, [])
 
   // ── Delete a saved report ────────────────────────────────────────────────
-  const handleDelete = useCallback((id: string) => {
-    setSaved(prev => {
-      const next = prev.filter(r => r.id !== id)
-      saveSavedReports(next)
-      return next
-    })
+  const handleDelete = useCallback(async (id: string) => {
+    await deleteReportData(id)
+    setSaved(prev => prev.filter(r => r.id !== id))
   }, [])
 
   // ── New file uploaded ────────────────────────────────────────────────────
-  const handleNewRecords = useCallback((newRecords: OrchardRecord[], fileName?: string) => {
+  const handleNewRecords = useCallback(async (newRecords: OrchardRecord[], fileName?: string) => {
     const name = fileName ?? 'Reporte'
-    const report = buildReport(newRecords, name)
 
-    // If we're already viewing a report, append records to it
     if (activeReport) {
+      // Append to current report
       const updatedRecords = [...records, ...newRecords]
       const updatedReport: SavedReport = {
         ...activeReport,
@@ -351,20 +395,15 @@ export default function OrchardReportPage() {
         streams: updatedRecords.reduce((s, r) => s + r.quantity, 0),
         data:    updatedRecords,
       }
-      setSaved(prev => {
-        const next = prev.map(r => r.id === activeReport.id ? updatedReport : r)
-        saveSavedReports(next)
-        return next
-      })
+      await saveReportData(updatedReport)
+      setSaved(prev => prev.map(r => r.id === activeReport.id ? updatedReport : r))
       setActiveReport(updatedReport)
       setRecords(updatedRecords)
     } else {
-      // Save as new report and open it
-      setSaved(prev => {
-        const next = [report, ...prev]
-        saveSavedReports(next)
-        return next
-      })
+      // Save as new report
+      const report = buildReport(newRecords, name)
+      await saveReportData(report)
+      setSaved(prev => [report, ...prev])
       setActiveReport(report)
       setRecords(report.data)
       setFilters(EMPTY_FILTERS)
@@ -383,8 +422,7 @@ export default function OrchardReportPage() {
   }, [])
 
   // ── Persist current report changes ───────────────────────────────────────
-  // NOTE: We do NOT auto-persist on every records change to avoid loops.
-  // Persistence happens explicitly in handleNewRecords and handleDelete only.
+  // NOTE: Persistence happens explicitly in handleNewRecords only.
 
   // ── Analytics ────────────────────────────────────────────────────────────
   const filteredRecords   = useMemo(() => applyFilters(records, filters), [records, filters])
