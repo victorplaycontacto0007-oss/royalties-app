@@ -6,7 +6,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   BarChart2, Globe, BookOpen, AlertTriangle, CheckSquare,
   LayoutDashboard, Upload, Trash2, Download, FolderOpen,
-  FileText, Clock, ChevronRight, Plus, X,
+  FileText, Clock, ChevronRight, Plus, X, DollarSign, TrendingUp, Music,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -201,6 +201,11 @@ function LibraryView({
   onDelete: (id: string) => void
   onNew: () => void
 }) {
+  // ── Totales acumulados de todos los reportes guardados ───────────────────
+  const totalRevenue = saved.reduce((s, r) => s + r.revenue, 0)
+  const totalStreams  = saved.reduce((s, r) => s + r.streams, 0)
+  const totalRecords = saved.reduce((s, r) => s + r.records, 0)
+
   return (
     <div className="min-h-full flex flex-col bg-white">
       {/* Header */}
@@ -242,8 +247,7 @@ function LibraryView({
           /* Report grid */
           <div className="flex flex-col gap-3">
             <p className="text-text-secondary text-sm font-medium mb-1">Mis reportes</p>
-            {saved.map(report => (
-              <div
+            {saved.map(report => (              <div
                 key={report.id}
                 className="card p-0 flex items-center hover:shadow-card-hover transition-shadow cursor-pointer group"
                 onClick={() => onLoad(report)}
@@ -310,6 +314,55 @@ function LibraryView({
           </div>
         )}
       </div>
+
+      {/* ── Tarjetas de totales acumulados ── */}
+      {saved.length > 0 && (
+        <div className="px-6 pb-8">
+          <p className="text-text-muted text-xs font-semibold uppercase tracking-wide mb-3">
+            Totales acumulados — {saved.length} reporte{saved.length !== 1 ? 's' : ''}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Ingresos totales */}
+            <div className="card flex items-center justify-between gap-4">
+              <div>
+                <p className="text-text-muted text-sm mb-1">Ingresos totales</p>
+                <p className="text-primary font-bold text-2xl">
+                  {totalRevenue.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <DollarSign className="w-5 h-5 text-primary" />
+              </div>
+            </div>
+
+            {/* Total streams */}
+            <div className="card flex items-center justify-between gap-4">
+              <div>
+                <p className="text-text-muted text-sm mb-1">Total streams</p>
+                <p className="text-success font-bold text-2xl">
+                  {totalStreams.toLocaleString('en-US')}
+                </p>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center flex-shrink-0">
+                <TrendingUp className="w-5 h-5 text-success" />
+              </div>
+            </div>
+
+            {/* Total registros */}
+            <div className="card flex items-center justify-between gap-4">
+              <div>
+                <p className="text-text-muted text-sm mb-1">Registros totales</p>
+                <p className="text-warning font-bold text-2xl">
+                  {totalRecords.toLocaleString('en-US')}
+                </p>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-warning/10 flex items-center justify-center flex-shrink-0">
+                <Music className="w-5 h-5 text-warning" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
