@@ -169,6 +169,12 @@ function RankingTable({
             const pct   = total.revenue > 0 ? row.revenue / total.revenue * 100 : 0
             const p100  = row.streams > 0 ? row.revenue / row.streams * 100 : null
             const p1000 = row.streams > 0 ? row.revenue / row.streams * 1000 : null
+            const DOT_COLORS = [
+              'bg-violet-500','bg-purple-400','bg-cyan-400','bg-emerald-400',
+              'bg-amber-400', 'bg-red-400',  'bg-orange-400','bg-green-500',
+              'bg-blue-400',  'bg-pink-400', 'bg-teal-400', 'bg-yellow-400',
+              'bg-indigo-400','bg-rose-400', 'bg-lime-400', 'bg-sky-400',
+            ]
             return (
               <tr
                 key={i}
@@ -177,7 +183,7 @@ function RankingTable({
               >
                 <td className="py-2.5 pr-4">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-primary/60 flex-shrink-0" />
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${DOT_COLORS[i % DOT_COLORS.length]}`} />
                     <span className="text-text-primary font-medium text-xs truncate max-w-[200px]" title={row.name}>
                       {row.name}
                     </span>

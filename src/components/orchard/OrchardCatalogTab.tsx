@@ -284,6 +284,15 @@ export default function OrchardCatalogTab({
                   ? `${row.country} (${row.platform})`
                   : row.track
 
+              // Paleta de colores rotatoria igual a la imagen de referencia
+              const DOT_COLORS = [
+                'bg-violet-500', 'bg-purple-400', 'bg-cyan-400', 'bg-emerald-400',
+                'bg-amber-400',  'bg-red-400',    'bg-orange-400','bg-green-500',
+                'bg-blue-400',   'bg-pink-400',   'bg-teal-400',  'bg-yellow-400',
+                'bg-indigo-400', 'bg-rose-400',   'bg-lime-400',  'bg-sky-400',
+              ]
+              const dotColor = DOT_COLORS[i % DOT_COLORS.length]
+
               return (
                 <tr
                   key={i}
@@ -292,7 +301,7 @@ export default function OrchardCatalogTab({
                 >
                   <td className="py-2.5 pr-4">
                     <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-primary/60 flex-shrink-0" />
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
                       <span className="text-text-primary font-medium text-xs truncate max-w-[200px]" title={row.track}>
                         {row.track}
                       </span>
