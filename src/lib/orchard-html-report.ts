@@ -140,10 +140,21 @@ a{color:var(--primary);text-decoration:none}
 .page-wrap{max-width:1100px;margin:0 auto;padding:24px 16px 80px}
 
 /* ── Cover ── */
-.cover{background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a78bfa 100%);
-  color:#fff;border-radius:20px;padding:52px 48px;margin-bottom:32px;position:relative;overflow:hidden}
+.cover{
+  color:#fff;border-radius:20px;padding:52px 48px;margin-bottom:32px;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a78bfa 100%);
+}
+.cover.has-logo{
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+}
+.cover.has-logo::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,rgba(30,20,80,.72) 0%,rgba(80,40,120,.60) 100%);
+  z-index:0;
+}
+.cover>*{position:relative;z-index:1}
 .cover::before{content:'';position:absolute;top:-60px;right:-60px;width:280px;height:280px;
-  border-radius:50%;background:rgba(255,255,255,.08)}
+  border-radius:50%;background:rgba(255,255,255,.06);z-index:1}
 .cover-label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.75;margin-bottom:8px}
 .cover-artist{font-size:42px;font-weight:800;line-height:1.1;margin-bottom:4px}
 .cover-label2{font-size:18px;opacity:.85;font-weight:500;margin-bottom:24px}
@@ -488,8 +499,9 @@ export function generateOrchardArtistHTML(
   </div>
 
   <!-- ── COVER ── -->
-  <div class="cover" data-section="cover" id="cover">
-    ${logoBase64 ? `<img src="${logoBase64}" alt="${escHtml(labelName)}" style="height:48px;width:auto;object-fit:contain;margin-bottom:16px;filter:brightness(0) invert(1);opacity:0.9;">` : ''}
+  <div class="cover${logoBase64 ? ' has-logo' : ''}"
+       data-section="cover" id="cover"
+       ${logoBase64 ? `style="background-image:url('${logoBase64}')"` : ''}>
     <div class="cover-label">Royalties Music Analytics · Liquidación de regalías</div>
     <div class="cover-artist">${escHtml(artist)}</div>
     <div class="cover-label2">${escHtml(labelName)}</div>
