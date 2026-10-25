@@ -149,12 +149,16 @@ a{color:var(--primary);text-decoration:none}
 }
 .cover.has-logo::after{
   content:'';position:absolute;inset:0;
-  background:linear-gradient(135deg,rgba(30,20,80,.72) 0%,rgba(80,40,120,.60) 100%);
+  background:linear-gradient(to bottom, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.28) 100%);
   z-index:0;
 }
 .cover>*{position:relative;z-index:1}
+.cover .cover-artist,.cover .cover-label,.cover .cover-label2,.cover .cover-meta{
+  text-shadow:0 1px 8px rgba(0,0,0,0.55);
+}
 .cover::before{content:'';position:absolute;top:-60px;right:-60px;width:280px;height:280px;
-  border-radius:50%;background:rgba(255,255,255,.06);z-index:1}
+  border-radius:50%;background:rgba(255,255,255,.04);z-index:1}
+.cover.has-logo::before{display:none}
 .cover-label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.75;margin-bottom:8px}
 .cover-artist{font-size:42px;font-weight:800;line-height:1.1;margin-bottom:4px}
 .cover-label2{font-size:18px;opacity:.85;font-weight:500;margin-bottom:24px}
