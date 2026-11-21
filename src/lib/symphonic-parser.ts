@@ -386,6 +386,7 @@ export function symphonicToRoyaltyRecords(
   reportId: string,
   userId: string,
 ): object[] {
+  // Only include columns that exist in the royalty_records table
   return rows.map(r => ({
     report_id:   reportId,
     user_id:     userId,
@@ -395,13 +396,8 @@ export function symphonicToRoyaltyRecords(
     artist_name: r.track_artist || r.product_artist,
     song_title:  r.track,
     album_name:  r.product,
-    upc:         r.display_upc || r.manufacturer_upc,
-    isrc:        r.isrc,
     quantity:    r.quantity,
     earnings_usd: r.revenue,
-    // Extra Symphonic fields stored in JSON for the detail view
-    transaction_type:    r.transaction_type,
-    transaction_subtype: r.transaction_subtype,
   }))
 }
 
