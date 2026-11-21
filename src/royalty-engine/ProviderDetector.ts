@@ -33,7 +33,7 @@ const PROVIDERS: Array<{ name: ProviderName; signals: string[] }> = [
   { name: 'CD Baby',        signals: ['cdbaby', 'cdbabypro'] },
   { name: 'Believe',        signals: ['believe'] },
   { name: 'FUGA',           signals: ['fuga', 'fugamusic'] },
-  { name: 'Symphonic',      signals: ['symphonic'] },
+  { name: 'Symphonic',      signals: ['symphonic', 'statementperiod', 'labelimprint', 'royaltytype', 'productartist', 'transactionsubtype', 'accountcurrency', 'originalstatementperiod', 'youtubevideoid'] },
   { name: 'ONErpm',         signals: ['onerpm'] },
   { name: 'Too Lost',       signals: ['toolost'] },
   { name: 'Amuse',          signals: ['amuse'] },

@@ -49,7 +49,7 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'partnerrevenue',
     // Spotify Direct
     'royalties',
-    // Spotify / generic
+    // Symphonic — primary revenue column
     'revenue',
     // SoundOn
     'finalroyalty',
@@ -94,6 +94,10 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'artistname', 'artist_name', 'trackartists',
     'artist', 'performer', 'act',
     'recordingartist', 'mainartist', 'primaryartist', 'labelartist',
+    // Symphonic — track-level artist (preferred over product artist)
+    'trackartist',
+    // Symphonic — album/product-level artist (fallback)
+    'productartist',
   ],
   track: [
     'tracktitle', 'track_title', 'songtitle', 'song_title',
@@ -108,6 +112,8 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
   ],
   upc: [
     'upc', 'displayupc', 'productupc', 'barcode',
+    // Symphonic has two UPC columns; prefer display UPC
+    'manufacturerupc',
   ],
   isrc: [
     'isrc', 'trackisrc', 'recordingisrc',
@@ -146,6 +152,8 @@ export const ALIAS_DICTIONARY: Record<CanonicalField, string[]> = {
     'settlementdate', 'paymentdate', 'transactiondate', 'reportdate',
     // Ditto: use start_date
     'startdate', 'start_date',
+    // Symphonic: statement period is the billing cycle
+    'statementperiod',
     'period', 'month', 'date',
   ],
   transaction_type: [

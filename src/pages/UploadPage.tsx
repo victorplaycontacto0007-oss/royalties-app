@@ -17,6 +17,7 @@ import { convertCurrencies, type TargetCurrency, type ConversionResult } from '.
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { parseSymphonicFile, symphonicToRoyaltyRecords, normaliseSymphonicPeriod, isSymphonicFile } from '../lib/symphonic-parser'
 
 type UploadStatus = 'idle' | 'detecting' | 'selecting' | 'uploading' | 'processing' | 'saving' | 'success' | 'discrepancy' | 'error'
 
@@ -55,13 +56,44 @@ export default function UploadPage() {
   const [availablePeriods, setAvailablePeriods]     = useState<string[]>([])
   const [officialTotal, setOfficialTotal]           = useState<number | null>(null)
   const [selectedPeriods, setSelectedPeriods]       = useState<Set<string>>(new Set())
+  const [isSymphonic, setIsSymphonic]               = useState(false)
 
   // STEP 1: detect periods
   const handleFileDrop = useCallback(async (accepted: File[]) => {
     const file = accepted[0]
     if (!file || !user) return
-    setStatus('detecting'); setError(''); setStats(null); setPendingFile(file)
+    setStatus('detecting'); setError(''); setStats(null); setPendingFile(file); setIsSymphonic(false)
     try {
+      // ── Quick header peek to detect Symphonic ─────────────────────────────
+      let looksLikeSymphonic = false
+      try {
+        // Read first 4KB to get the header row
+        const slice  = file.slice(0, 8192)
+        const text   = await slice.text()
+        const firstLine = text.split('\n')[0] ?? ''
+        const headers   = firstLine.split(',').map(h => h.replace(/^"|"$/g, '').trim())
+        looksLikeSymphonic = isSymphonicFile(headers)
+      } catch { /* ignore — fall through to normal detection */ }
+
+      if (looksLikeSymphonic) {
+        setIsSymphonic(true)
+        // For Symphonic, derive period directly from the file
+        const result = await parseSymphonicFile(file)
+        if (result && result.rows.length > 0) {
+          const period = result.statementPeriod
+            ? normaliseSymphonicPeriod(result.statementPeriod)
+            : ''
+          const periods = period ? [period] : []
+          setAvailablePeriods(periods)
+          setSelectedPeriods(new Set(periods))
+          setOfficialTotal(result.totalRevenue)
+          setStatus('selecting')
+        } else {
+          throw new Error('No se pudieron leer los datos del reporte Symphonic.')
+        }
+        return
+      }
+
       const result = await detectAvailablePeriods(file)
       const sorted = sortPeriods(result.availablePeriods)
       setAvailablePeriods(sorted)
@@ -103,6 +135,112 @@ export default function UploadPage() {
       }).select().single()
       if (reportError) throw reportError
 
+      // ── Symphonic path ──────────────────────────────────────────────────
+      if (isSymphonic) {
+        setStatus('processing'); setProgress('Procesando reporte Symphonic...')
+
+        const sympResult = await parseSymphonicFile(pendingFile)
+        if (!sympResult || sympResult.rows.length === 0) {
+          throw new Error('El archivo Symphonic no contiene datos válidos.')
+        }
+
+        // Filter by selected periods
+        const selNorm = new Set([...selectedPeriods].map(p => normaliseSymphonicPeriod(p)))
+        const filteredRows = selNorm.size > 0
+          ? sympResult.rows.filter(r => selNorm.has(normaliseSymphonicPeriod(r.statement_period)))
+          : sympResult.rows
+
+        setStatus('saving')
+        setProgress(`Guardando ${filteredRows.length.toLocaleString()} registros Symphonic...`)
+
+        const records = symphonicToRoyaltyRecords(filteredRows, report.id, user.id)
+        const BATCH = 1000, CONCURRENCY = 5
+        const batches: object[][] = []
+        for (let i = 0; i < records.length; i += BATCH) batches.push(records.slice(i, i + BATCH))
+
+        let done = 0
+        for (let i = 0; i < batches.length; i += CONCURRENCY) {
+          const chunk   = batches.slice(i, i + CONCURRENCY)
+          const results = await Promise.all(chunk.map(b => db.from('royalty_records').insert(b)))
+          for (const { error: insErr } of results) {
+            if (insErr) {
+              await db.from('reports').update({ status: 'error', error_message: insErr.message }).eq('id', report.id)
+              throw new Error(`Error al guardar registros Symphonic: ${insErr.message}`)
+            }
+          }
+          done += chunk.reduce((s, b) => s + b.length, 0)
+          setProgress(`Guardando... ${Math.min(done, records.length).toLocaleString()}/${records.length.toLocaleString()}`)
+        }
+
+        await db.from('reports').update({
+          status:      'completed',
+          processed_at: new Date().toISOString(),
+          provider:    'Symphonic',
+          currency:    sympResult.currency,
+          net_total:   sympResult.totalRevenue,
+          gross_total: sympResult.totalRevenue,
+          taxes:       0,
+          channel_costs: 0,
+          other_costs: 0,
+          audit_status: 'ok',
+          reported_month: normaliseSymphonicPeriod(sympResult.statementPeriod),
+          total_columns: 24,
+          error_rows: sympResult.rowErrors,
+        }).eq('id', report.id)
+
+        await db.from('activity_logs').insert({
+          user_id: user.id, action: 'report_uploaded',
+          details: {
+            file_name: pendingFile.name, records: filteredRows.length, report_id: report.id,
+            total_net: sympResult.totalRevenue, currency: sympResult.currency,
+            provider: 'Symphonic', selected_periods: [...selectedPeriods],
+          },
+        })
+
+        queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
+        queryClient.invalidateQueries({ queryKey: ['reports-count'] })
+        queryClient.invalidateQueries({ queryKey: ['reports'] })
+
+        // Build minimal stats for the success screen
+        const minimalStats: RUPEStats = {
+          totalRows:        filteredRows.length,
+          totalNet:         sympResult.totalRevenue,
+          totalGross:       sympResult.totalRevenue,
+          totalTaxes:       0,
+          totalCosts:       0,
+          totalStreams:     sympResult.totalQuantity,
+          currency:         sympResult.currency,
+          provider:         'Symphonic',
+          uniqueSongs:      0,
+          uniqueAlbums:     0,
+          uniqueArtists:    0,
+          uniqueCountries:  0,
+          uniquePlatforms:  0,
+          uniqueISRC:       0,
+          uniqueUPC:        0,
+          topArtists:       [],
+          topTracks:        [],
+          topPlatforms:     [],
+          topCountries:     [],
+          byMonth:          [],
+          byAlbum:          [],
+          errors:           sympResult.rowErrors,
+          processingLog:    sympResult.log,
+          totalDownloads:   0,
+          auditStatus:      'valid',
+          processingTimeMs: 0,
+          paymentColumnUsed: 'revenue',
+          currencyGroups:   [],
+        }
+        setStats(minimalStats)
+        setReportId(report.id)
+        setAudit(null)
+        setDebug(null)
+        setStatus('success')
+        return
+      }
+
+      // ── Standard RUPE path ──────────────────────────────────────────────
       // 3. Parse with RUPE
       setStatus('processing'); setProgress('Analizando reporte con RUPE...')
       const { rows: allRows, stats: parsedStats, audit: parsedAudit, debug: parsedDebug } = await parseFile(pendingFile, {
@@ -223,6 +361,7 @@ export default function UploadPage() {
     setStatus('idle'); setError(''); setProgress(''); setReportId('')
     setStats(null); setAudit(null); setDebug(null); setIsDebugOpen(false)
     setPendingFile(null); setAvailablePeriods([]); setSelectedPeriods(new Set()); setOfficialTotal(null)
+    setIsSymphonic(false)
     setActiveTab('audit'); setConversionResult(null); setConversionError(null)
   }
 

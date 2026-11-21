@@ -5,14 +5,20 @@
  * Calls parseOrchardFile() on drop/selection, shows progress while parsing,
  * displays the import log afterward, and supports accumulating additional files.
  *
+ * After parsing succeeds the records are persisted to Supabase via
+ * orchardReportService.saveOrchardReport() so they survive page refresh and
+ * are available from any device.
+ *
  * Requirements: 1.1, 2.3, 17.3, 17.4, 17.5
  */
 
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { CloudUpload, Loader2, CheckCircle, XCircle, AlertTriangle, FilePlus } from 'lucide-react'
+import { CloudUpload, Loader2, CheckCircle, XCircle, AlertTriangle, FilePlus, Save } from 'lucide-react'
 import { parseOrchardFile } from '../../royalty-engine/StreamTypeClassifier'
 import type { OrchardRecord } from '../../royalty-engine/StreamTypeClassifier'
+import { saveOrchardReport, uploadOrchardFile } from '../../lib/orchardReportService'
+import { useAuth } from '../../contexts/AuthContext'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -22,17 +28,19 @@ export interface OrchardUploadPanelProps {
 
 // ─── State types ─────────────────────────────────────────────────────────────
 
-type PanelStatus = 'idle' | 'parsing' | 'success' | 'error'
+type PanelStatus = 'idle' | 'parsing' | 'saving' | 'success' | 'error'
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPanelProps) {
+  const { user } = useAuth()
   const [status, setStatus]               = useState<PanelStatus>('idle')
   const [importLog, setImportLog]         = useState<string[]>([])
   const [unmappedColumns, setUnmappedColumns] = useState<string[]>([])
   const [lastFileName, setLastFileName]   = useState<string>('')
   const [recordCount, setRecordCount]     = useState<number>(0)
   const [hasImported, setHasImported]     = useState(false)
+  const [saveError, setSaveError]         = useState<string>('')
 
   // ── File handler ──────────────────────────────────────────────────────────
 
@@ -40,6 +48,7 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
     setStatus('parsing')
     setImportLog([])
     setUnmappedColumns([])
+    setSaveError('')
 
     try {
       const { records, unmappedColumns: unmapped, importLog: log } = await parseOrchardFile(file)
@@ -57,6 +66,20 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
         return
       }
 
+      // ── Persist to Supabase (non-blocking on save error) ──────────────
+      if (user && records.length > 0) {
+        setStatus('saving')
+        try {
+          const filePath = await uploadOrchardFile(user.id, file)
+          await saveOrchardReport(user.id, file.name, records, filePath)
+        } catch (saveErr) {
+          const msg = saveErr instanceof Error ? saveErr.message : String(saveErr)
+          // Non-fatal: records already in memory, just warn
+          setSaveError(`Guardado en nube falló: ${msg}. Los datos están disponibles en esta sesión.`)
+          console.warn('Orchard save error (non-fatal):', saveErr)
+        }
+      }
+
       setStatus('success')
       setHasImported(true)
       onRecordsLoaded(records, file.name)
@@ -65,7 +88,7 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
       setImportLog([`Error: ${message}`])
       setStatus('error')
     }
-  }, [onRecordsLoaded])
+  }, [onRecordsLoaded, user])
 
   // ── Dropzone setup ────────────────────────────────────────────────────────
 
@@ -93,6 +116,7 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
     setStatus('idle')
     setImportLog([])
     setUnmappedColumns([])
+    setSaveError('')
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -101,7 +125,7 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
     <div className="space-y-4">
 
       {/* ── Drop zone — shown in idle, or re-shown after "Agregar otro archivo" ── */}
-      {(status === 'idle' || status === 'parsing') && (
+      {(status === 'idle' || status === 'parsing' || status === 'saving') && (
         <div
           {...getRootProps()}
           className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-200
@@ -119,7 +143,9 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
               ${isDragActive ? 'bg-primary/20' : 'bg-surface-2'}`}>
               {status === 'parsing'
                 ? <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                : <CloudUpload className={`w-8 h-8 ${isDragActive ? 'text-primary' : 'text-text-muted'}`} />
+                : status === 'saving'
+                  ? <Save className="w-8 h-8 text-primary animate-pulse" />
+                  : <CloudUpload className={`w-8 h-8 ${isDragActive ? 'text-primary' : 'text-text-muted'}`} />
               }
             </div>
 
@@ -128,6 +154,11 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
               <div>
                 <p className="text-text-primary font-medium">Procesando archivo...</p>
                 <p className="text-text-muted text-sm mt-1">Por favor espera...</p>
+              </div>
+            ) : status === 'saving' ? (
+              <div>
+                <p className="text-text-primary font-medium">Guardando en Supabase...</p>
+                <p className="text-text-muted text-sm mt-1">Sincronizando con tu cuenta...</p>
               </div>
             ) : (
               <div>
@@ -151,10 +182,18 @@ export default function OrchardUploadPanel({ onRecordsLoaded }: OrchardUploadPan
             <div className="flex-1 min-w-0">
               <p className="text-text-primary text-sm font-medium truncate">{lastFileName}</p>
               <p className="text-text-muted text-xs mt-0.5">
-                {recordCount.toLocaleString('en-US')} registro{recordCount !== 1 ? 's' : ''} importado{recordCount !== 1 ? 's' : ''}
+                {recordCount.toLocaleString('en-US')} registro{recordCount !== 1 ? 's' : ''} importado{recordCount !== 1 ? 's' : ''} y guardado{recordCount !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
+
+          {/* Save warning (non-fatal) */}
+          {saveError && (
+            <div className="flex items-start gap-2 px-4 py-3 bg-warning/5 border-b border-warning/20">
+              <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+              <p className="text-warning text-xs">{saveError}</p>
+            </div>
+          )}
 
           {/* Unmapped columns warning */}
           {unmappedColumns.length > 0 && (
